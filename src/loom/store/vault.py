@@ -4,12 +4,32 @@ import json
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from loom.store.atomic import atomic_write
 
 
-class VaultStore:
+@runtime_checkable
+class VaultProvider(Protocol):
+    """Pluggable vault backend.
+
+    Loom ships a filesystem+FTS5 default (``FilesystemVaultProvider``). Projects
+    with richer semantics (kanban, backlinks, tag graph, etc.) implement this
+    protocol and register their own instance with the vault tool.
+    """
+
+    async def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]: ...
+    async def read(self, path: str) -> str: ...
+    async def write(
+        self, path: str, content: str, metadata: dict | None = None
+    ) -> None: ...
+    async def list(self, prefix: str = "") -> list[str]: ...
+    async def delete(self, path: str) -> None: ...
+
+
+class FilesystemVaultProvider:
+    """Default VaultProvider: markdown files on disk + SQLite FTS5 index."""
+
     def __init__(self, vault_dir: Path) -> None:
         self._dir = vault_dir
         self._dir.mkdir(parents=True, exist_ok=True)
@@ -125,9 +145,19 @@ class VaultStore:
                 results.append(str(rel))
         return results
 
+    async def delete(self, path: str) -> None:
+        target = self._safe_resolve(path)
+        if target.exists():
+            target.unlink()
+        self._reindex_doc(path)
+
     def reindex_all(self) -> None:
         for p in sorted(self._dir.rglob("*.md")):
             if p.name.startswith("_"):
                 continue
             rel = p.relative_to(self._dir)
             self._reindex_doc(str(rel))
+
+
+# Back-compat alias (deprecated; use FilesystemVaultProvider).
+VaultStore = FilesystemVaultProvider
