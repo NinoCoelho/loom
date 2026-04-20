@@ -22,10 +22,13 @@ from loom.types import (
     ChatMessage,
     ChatResponse,
     ContentDeltaEvent,
+    LimitReachedEvent,
     Role,
     StopReason,
     StreamEvent,
     ToolCall,
+    ToolExecResultEvent,
+    ToolExecStartEvent,
     ToolSpec,
     Usage,
 )
@@ -212,6 +215,10 @@ class Agent:
         return stream
 
     async def _dispatch_tool(self, tc: ToolCall) -> str:
+        text, _ = await self._dispatch_tool_result(tc)
+        return text
+
+    async def _dispatch_tool_result(self, tc: ToolCall) -> tuple[str, bool]:
         try:
             args = json.loads(tc.arguments) if tc.arguments else {}
         except json.JSONDecodeError:
@@ -219,7 +226,7 @@ class Agent:
         result = await self._tools.dispatch(tc.name, args)
         if self._config.on_tool_result:
             self._config.on_tool_result(tc, result.to_text())
-        return result.to_text()
+        return result.to_text(), bool(getattr(result, "is_error", False))
 
     async def run_turn(
         self,
@@ -413,6 +420,10 @@ class Agent:
 
             for tc in assembled_tcs:
                 total_tool_calls += 1
+                yield ToolExecStartEvent(
+                    tool_call_id=tc.id, name=tc.name, arguments=tc.arguments
+                )
+                is_error = False
                 if tc.name == "activate_skill" and self._skills:
                     args = json.loads(tc.arguments) if tc.arguments else {}
                     skill_name = args.get("name", "")
@@ -422,8 +433,16 @@ class Agent:
                         skills_touched.append(skill_name)
                     else:
                         result_text = f"Skill not found: {skill_name}"
+                        is_error = True
                 else:
-                    result_text = await self._dispatch_tool(tc)
+                    result_text, is_error = await self._dispatch_tool_result(tc)
+
+                yield ToolExecResultEvent(
+                    tool_call_id=tc.id,
+                    name=tc.name,
+                    text=result_text,
+                    is_error=is_error,
+                )
 
                 all_messages.append(ChatMessage(
                     role=Role.TOOL,
@@ -432,4 +451,4 @@ class Agent:
                     name=tc.name,
                 ))
 
-        yield ContentDeltaEvent(delta="[iteration limit reached]")
+        yield LimitReachedEvent(iterations=self._config.max_iterations)
