@@ -6,9 +6,15 @@ from loom.types import ToolSpec
 
 
 class ToolResult:
-    def __init__(self, text: str, metadata: dict | None = None) -> None:
+    def __init__(
+        self,
+        text: str,
+        metadata: dict | None = None,
+        is_error: bool = False,
+    ) -> None:
         self.text = text
         self.metadata = metadata or {}
+        self.is_error = is_error
 
     def to_text(self) -> str:
         return self.text

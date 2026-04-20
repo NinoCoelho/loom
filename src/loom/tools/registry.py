@@ -17,11 +17,11 @@ class ToolRegistry:
     async def dispatch(self, name: str, args: dict) -> ToolResult:
         handler = self._handlers.get(name)
         if handler is None:
-            return ToolResult(text=f"Unknown tool: {name}")
+            return ToolResult(text=f"Unknown tool: {name}", is_error=True)
         try:
             return await handler.invoke(args)
         except Exception as e:
-            return ToolResult(text=f"Tool error ({name}): {e}")
+            return ToolResult(text=f"Tool error ({name}): {e}", is_error=True)
 
     def specs(self) -> list[ToolSpec]:
         return [h.tool for h in self._handlers.values()]

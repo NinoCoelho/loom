@@ -76,4 +76,47 @@ class StopEvent(BaseModel):
     stop_reason: StopReason
 
 
-StreamEvent = Union[ContentDeltaEvent, ToolCallDeltaEvent, UsageEvent, StopEvent]
+class ToolExecStartEvent(BaseModel):
+    """Emitted right before a tool call dispatches to its handler."""
+
+    type: Literal["tool_exec_start"] = "tool_exec_start"
+    tool_call_id: str
+    name: str
+    arguments: str
+
+
+class ToolExecResultEvent(BaseModel):
+    """Emitted after a tool call returns (or raises)."""
+
+    type: Literal["tool_exec_result"] = "tool_exec_result"
+    tool_call_id: str
+    name: str
+    text: str
+    is_error: bool = False
+
+
+class LimitReachedEvent(BaseModel):
+    """Emitted when the agent loop exits due to max_iterations."""
+
+    type: Literal["limit_reached"] = "limit_reached"
+    iterations: int
+
+
+class ErrorEvent(BaseModel):
+    """Emitted for non-fatal turn-level errors surfaced to consumers."""
+
+    type: Literal["error"] = "error"
+    message: str
+    reason: str | None = None
+
+
+StreamEvent = Union[
+    ContentDeltaEvent,
+    ToolCallDeltaEvent,
+    UsageEvent,
+    StopEvent,
+    ToolExecStartEvent,
+    ToolExecResultEvent,
+    LimitReachedEvent,
+    ErrorEvent,
+]
