@@ -1,24 +1,22 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Protocol
 
-from loom.types import ToolSpec
+from loom.store.vault import VaultProvider
 from loom.tools.base import ToolHandler, ToolResult
-
-
-class VaultStore(Protocol):
-    async def search(self, query: str, limit: int) -> list[dict[str, Any]]: ...
-    async def read(self, path: str) -> str: ...
-    async def write(
-        self, path: str, content: str, metadata: dict | None = None
-    ) -> None: ...
-    async def list(self, prefix: str) -> list[str]: ...
+from loom.types import ToolSpec
 
 
 class VaultToolHandler(ToolHandler):
-    def __init__(self, store: VaultStore) -> None:
-        self._store = store
+    """Vault tool — delegates to any ``VaultProvider`` implementation.
+
+    Loom ships ``FilesystemVaultProvider`` as a default. Projects with richer
+    vaults (kanban, backlinks, tag graph, etc.) should implement
+    ``VaultProvider`` and pass their instance here.
+    """
+
+    def __init__(self, provider: VaultProvider) -> None:
+        self._provider = provider
 
     @property
     def tool(self) -> ToolSpec:
@@ -30,7 +28,7 @@ class VaultToolHandler(ToolHandler):
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["search", "read", "write", "list"],
+                        "enum": ["search", "read", "write", "list", "delete"],
                         "description": "Action to perform",
                     },
                     "query": {"type": "string", "description": "Search query"},
@@ -59,28 +57,33 @@ class VaultToolHandler(ToolHandler):
         if action == "search":
             query = args.get("query", "")
             limit = args.get("limit", 10)
-            results = await self._store.search(query, limit)
+            results = await self._provider.search(query, limit)
             return ToolResult(
                 text=json.dumps(results), metadata={"count": len(results)}
             )
 
         if action == "read":
             path = args.get("path", "")
-            content = await self._store.read(path)
+            content = await self._provider.read(path)
             return ToolResult(text=content)
 
         if action == "write":
             path = args.get("path", "")
             content = args.get("content", "")
             metadata = args.get("metadata")
-            await self._store.write(path, content, metadata)
+            await self._provider.write(path, content, metadata)
             return ToolResult(text=f"Wrote to {path}")
 
         if action == "list":
             prefix = args.get("prefix", "")
-            entries = await self._store.list(prefix)
+            entries = await self._provider.list(prefix)
             return ToolResult(
                 text=json.dumps(entries), metadata={"count": len(entries)}
             )
+
+        if action == "delete":
+            path = args.get("path", "")
+            await self._provider.delete(path)
+            return ToolResult(text=f"Deleted {path}")
 
         return ToolResult(text=f"Unknown vault action: {action}")

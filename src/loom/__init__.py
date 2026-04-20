@@ -22,6 +22,8 @@ from loom.permissions import AgentPermissions
 from loom.prompt import PromptSection, PromptBuilder
 from loom.runtime import AgentRuntime
 from loom.store.memory import MemoryStore, MemoryEntry
+from loom.store.vault import FilesystemVaultProvider, VaultProvider
+from loom.tools.vault import VaultToolHandler
 
 __version__ = "0.2.0"
 
@@ -55,4 +57,7 @@ __all__ = [
     "ToolResult",
     "ToolSpec",
     "Usage",
+    "VaultProvider",
+    "FilesystemVaultProvider",
+    "VaultToolHandler",
 ]
