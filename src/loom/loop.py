@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Callable, Coroutine
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loom.errors import LLMTransportError
 from loom.llm.base import LLMProvider
 from loom.llm.registry import ProviderRegistry
+from loom.prompt import (
+    PromptBuilder,
+    load_context_section,
+    load_identity_sections,
+    load_memory_preview,
+    load_pending_section,
+    load_skills_section,
+)
 from loom.retry import with_retry
 from loom.skills.registry import SkillRegistry
 from loom.tools.registry import ToolRegistry
@@ -21,6 +29,11 @@ from loom.types import (
     ToolSpec,
     Usage,
 )
+
+if TYPE_CHECKING:
+    from loom.home import AgentHome
+    from loom.permissions import AgentPermissions
+    from loom.store.memory import MemoryStore
 
 
 class AgentTurn:
@@ -57,6 +70,7 @@ class AgentConfig:
         on_before_turn: Callable[[list[ChatMessage]], list[ChatMessage]] | None = None,
         on_after_turn: Callable[[AgentTurn], None] | None = None,
         on_tool_result: Callable[[ToolCall, str], None] | None = None,
+        extra_tools: list[ToolHandler] | None = None,
     ) -> None:
         self.max_iterations = max_iterations
         self.model = model
@@ -64,6 +78,10 @@ class AgentConfig:
         self.on_before_turn = on_before_turn
         self.on_after_turn = on_after_turn
         self.on_tool_result = on_tool_result
+        self.extra_tools = extra_tools or []
+
+
+from loom.tools.base import ToolHandler
 
 
 class Agent:
@@ -74,6 +92,9 @@ class Agent:
         tool_registry: ToolRegistry | None = None,
         skill_registry: SkillRegistry | None = None,
         config: AgentConfig | None = None,
+        agent_home: AgentHome | None = None,
+        permissions: AgentPermissions | None = None,
+        memory_store: MemoryStore | None = None,
     ) -> None:
         self._provider = provider
         self._provider_registry = provider_registry
@@ -81,6 +102,21 @@ class Agent:
         self._skills = skill_registry
         self._config = config or AgentConfig()
         self._pending_question: str | None = None
+        self._home = agent_home
+        self._permissions = permissions
+        self._memory = memory_store
+
+    @property
+    def home(self) -> AgentHome | None:
+        return self._home
+
+    @property
+    def permissions(self) -> AgentPermissions | None:
+        return self._permissions
+
+    @property
+    def memory(self) -> MemoryStore | None:
+        return self._memory
 
     def _resolve_provider(self, model_id: str | None = None) -> tuple[LLMProvider, str]:
         if self._provider_registry and model_id:
@@ -97,20 +133,36 @@ class Agent:
         return self._tools.specs()
 
     def _build_system_prompt(self, context: dict[str, Any] | None = None) -> str:
-        parts: list[str] = []
-        if self._config.system_preamble:
-            parts.append(self._config.system_preamble)
-        if context:
-            ctx_lines = [f"{k}: {v}" for k, v in context.items()]
-            parts.append("Context:\n" + "\n".join(ctx_lines))
+        builder = PromptBuilder()
+
+        if self._home:
+            sections = load_identity_sections(self._home, self._permissions)
+            for s in sections:
+                builder.add(s)
+
+            if self._memory:
+                recent = self._memory.recent(limit=5, budget=1500)
+                mem_section = load_memory_preview(recent)
+                if mem_section:
+                    builder.add(mem_section)
+        elif self._config.system_preamble:
+            from loom.prompt import PromptSection
+            builder.add(PromptSection(name="preamble", content=self._config.system_preamble, priority=10))
+
         if self._skills:
-            descs = self._skills.descriptions()
-            if descs:
-                lines = [f"- {name} -- {desc}" for name, desc in descs]
-                parts.append("Available skills:\n" + "\n".join(lines))
-        if self._pending_question:
-            parts.append(f"Pending question from last turn: {self._pending_question}")
-        return "\n\n".join(parts)
+            desc_section = load_skills_section(self._skills.descriptions())
+            if desc_section:
+                builder.add(desc_section)
+
+        ctx_section = load_context_section(context)
+        if ctx_section:
+            builder.add(ctx_section)
+
+        pend_section = load_pending_section(self._pending_question)
+        if pend_section:
+            builder.add(pend_section)
+
+        return builder.build()
 
     def _extract_pending_question(self, reply: str) -> str | None:
         last_q = reply.rfind("?")
@@ -297,7 +349,6 @@ class Agent:
             content_parts: list[str] = []
             tool_call_parts: dict[int, dict[str, Any]] = {}
             stop_reason: StopReason = StopReason.UNKNOWN
-            stream_error: str | None = None
             has_forwarded = False
 
             async for event in stream:
@@ -323,8 +374,6 @@ class Agent:
                         total_output += event.usage.output_tokens
                     elif event.type == "stop":
                         stop_reason = event.stop_reason
-                        if hasattr(event, "model") and event.model:
-                            model_name = event.model
 
             if stop_reason not in (StopReason.TOOL_USE,) or not tool_call_parts:
                 reply = "".join(content_parts)

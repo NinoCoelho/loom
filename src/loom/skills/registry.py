@@ -7,17 +7,30 @@ from loom.skills.types import Skill
 
 
 class SkillRegistry:
-    def __init__(self, skills_dir: Path) -> None:
+    def __init__(
+        self,
+        skills_dir: Path,
+        additional_dirs: list[Path] | None = None,
+    ) -> None:
         self._skills_dir = skills_dir
+        self._additional_dirs = additional_dirs or []
         self._index: dict[str, Skill] = {}
 
     def scan(self) -> None:
         self._index.clear()
-        for skill_md in sorted(self._skills_dir.rglob("SKILL.md")):
+        for d in self._additional_dirs:
+            self._scan_dir(d)
+        self._scan_dir(self._skills_dir)
+
+    def _scan_dir(self, root: Path) -> None:
+        if not root.exists():
+            return
+        for skill_md in sorted(root.rglob("SKILL.md")):
             skill_dir = skill_md.parent
             try:
                 skill = load_skill(skill_dir)
-                self._index[skill.name] = skill
+                if skill.name not in self._index:
+                    self._index[skill.name] = skill
             except Exception:
                 continue
 
@@ -39,3 +52,11 @@ class SkillRegistry:
     def reload(self) -> None:
         self._index.clear()
         self.scan()
+
+    @property
+    def skills_dir(self) -> Path:
+        return self._skills_dir
+
+    @property
+    def additional_dirs(self) -> list[Path]:
+        return list(self._additional_dirs)

@@ -17,16 +17,28 @@ from loom.skills.manager import SkillManager
 from loom.skills.guard import SkillGuard
 from loom.llm.base import LLMProvider
 from loom.llm.registry import ProviderRegistry
+from loom.home import AgentHome
+from loom.permissions import AgentPermissions
+from loom.prompt import PromptSection, PromptBuilder
+from loom.runtime import AgentRuntime
+from loom.store.memory import MemoryStore, MemoryEntry
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "Agent",
     "AgentConfig",
+    "AgentHome",
+    "AgentRuntime",
     "AgentTurn",
     "ChatMessage",
     "ChatResponse",
     "LLMProvider",
+    "MemoryEntry",
+    "MemoryStore",
+    "AgentPermissions",
+    "PromptBuilder",
+    "PromptSection",
     "ProviderRegistry",
     "Role",
     "Skill",

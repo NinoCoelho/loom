@@ -1,17 +1,21 @@
 # Loom
 
-A reusable Python framework for building agentic applications with LLMs. Loom provides the core infrastructure for agentic loops, tool calling, skill management, streaming, human-in-the-loop (HITL) approvals, and multi-provider support.
+A reusable Python framework for building agentic applications with LLMs. Loom provides the core infrastructure for agentic loops, tool calling, skill management, streaming, human-in-the-loop (HITL) approvals, multi-provider support, agent identity, memory, and multi-agent coordination.
 
 ## Features
 
 - **Agentic Loop** -- Iterative LLM call -> tool dispatch -> result -> continue/stop cycle with configurable iteration limits
+- **Agent Home** -- Structured directory per agent with identity files, skills, memory, vault, sessions
+- **Identity Files** -- SOUL.md (purpose/values), IDENTITY.md (name/role/tone), USER.md (preferences) with configurable write permissions
+- **Memory System** -- Structured, searchable memory with categories, tags, and FTS5 full-text search
+- **Multi-Agent** -- `AgentRuntime` manages multiple agents with `DelegateTool` for inter-agent calls
 - **Tool System** -- Pluggable `ToolHandler` abstraction with a `ToolRegistry` for dispatch by name
-- **Skill System** -- SKILL.md (YAML frontmatter + Markdown) with progressive disclosure, agent authoring, and security guard
+- **Skill System** -- SKILL.md (YAML frontmatter + Markdown) with progressive disclosure, shared skill directories, and security guard
 - **Multi-Provider** -- OpenAI-compatible (works with Ollama, vLLM, Together, Groq, etc.) and Anthropic providers with a `ProviderRegistry`
 - **Streaming** -- Full SSE streaming support with tool call assembly and content deltas
 - **HITL** -- `ask_user` (confirm/choice/text) and `terminal` (approval-gated shell commands) tools
 - **Model Routing** -- Message classification (coding/reasoning/trivial/balanced) with model selection
-- **Session Persistence** -- SQLite-backed session store with history, usage tracking, and search
+- **Session Persistence** -- SQLite-backed session store per agent with history, usage tracking, and search
 - **Vault** -- Filesystem + FTS5 full-text search knowledge base
 - **Secret Redaction** -- 30+ patterns for API keys, tokens, connection strings
 - **Error Classification** -- Rich error taxonomy with retry/abort/compress/fallback decisions
@@ -109,6 +113,44 @@ strengths = {
 }
 
 best = choose_model("Explain why this code fails: def foo(): pass", registry, strengths)
+```
+
+### Multi-Agent Setup
+
+```python
+from loom import AgentRuntime, AgentConfig, AgentPermissions
+
+runtime = AgentRuntime()
+
+supervisor = runtime.create_agent(
+    "supervisor",
+    AgentConfig(model="gpt-4o"),
+    AgentPermissions(user_writable=True, delegate_allowed=True),
+)
+
+coder = runtime.create_agent(
+    "coder",
+    AgentConfig(model="gpt-4o"),
+    AgentPermissions(skills_creatable=True, terminal_allowed=True),
+)
+
+# The supervisor can now call: delegate(agent="coder", message="implement auth")
+```
+
+### Agent Home Structure
+
+```
+~/.loom/
+  shared-skills/           # Skills shared across all agents
+  agents/
+    supervisor/
+      SOUL.md              # Purpose and values
+      IDENTITY.md          # Name, role, tone
+      USER.md              # Learned user preferences
+      skills/              # Agent's own skills
+      memory/              # Structured searchable memory
+      vault/               # Knowledge base
+      sessions.sqlite      # Per-agent session store
 ```
 
 ## Architecture
