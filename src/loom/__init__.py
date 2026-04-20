@@ -24,6 +24,7 @@ from loom.runtime import AgentRuntime
 from loom.store.memory import MemoryStore, MemoryEntry
 from loom.store.vault import FilesystemVaultProvider, VaultProvider
 from loom.tools.vault import VaultToolHandler
+from loom.acp import AcpCallTool, AcpConfig
 
 __version__ = "0.2.0"
 
@@ -60,4 +61,6 @@ __all__ = [
     "VaultProvider",
     "FilesystemVaultProvider",
     "VaultToolHandler",
+    "AcpCallTool",
+    "AcpConfig",
 ]
