@@ -92,7 +92,7 @@ class MemoryStore:
 
     def _write_file(self, key: str, content: str, category: str, tags: list[str]) -> None:
         path = self._key_path(key)
-        now = datetime.utcnow().isoformat()
+        now = datetime.now().isoformat()
         fm = {
             "category": category,
             "tags": tags,
