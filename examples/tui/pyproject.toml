@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.backends"
+
+[project]
+name = "loom-tui"
+version = "0.1.0"
+description = "Test TUI application for the Loom agentic framework"
+requires-python = ">=3.12"
+dependencies = [
+    "loom",
+    "prompt-toolkit>=3.0",
+    "rich>=13.0",
+    "typer>=0.12",
+]
+
+[project.scripts]
+loom-tui = "loom_tui.main:app"
