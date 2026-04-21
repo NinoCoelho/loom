@@ -103,11 +103,28 @@ class LimitReachedEvent(BaseModel):
 
 
 class ErrorEvent(BaseModel):
-    """Emitted for non-fatal turn-level errors surfaced to consumers."""
+    """Emitted for non-fatal turn-level errors surfaced to consumers.
+
+    ``status_code`` is the upstream HTTP status when known (e.g. 429, 503).
+    ``retryable`` flags transient failures callers may choose to retry;
+    it's advisory — the agent itself does not retry after emitting this.
+    """
 
     type: Literal["error"] = "error"
     message: str
     reason: str | None = None
+    status_code: int | None = None
+    retryable: bool = False
+
+
+class DoneEvent(BaseModel):
+    """Terminal marker for a streaming turn. Carries a freeform
+    ``context`` bag so embedders can piggyback session-scoped metadata
+    (e.g. sid, routing decisions, token totals) onto the end of a stream
+    without inventing a sidecar channel."""
+
+    type: Literal["done"] = "done"
+    context: dict = {}
 
 
 StreamEvent = Union[
@@ -119,4 +136,5 @@ StreamEvent = Union[
     ToolExecResultEvent,
     LimitReachedEvent,
     ErrorEvent,
+    DoneEvent,
 ]
