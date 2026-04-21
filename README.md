@@ -70,9 +70,14 @@ For the ACP protocol:
 pip install "loom[acp]"
 ```
 
+For MCP (Model Context Protocol) client support:
+```bash
+pip install "loom[mcp]"
+```
+
 For everything (development):
 ```bash
-pip install -e ".[dev,anthropic,acp]"
+pip install -e ".[dev,anthropic,acp,mcp]"
 ```
 
 ### Minimal Agent
@@ -218,6 +223,7 @@ Loom is organized as 14 composable subsystems. Use what you need, ignore the res
 | Agent Home | `loom.home` | Structured per-agent directory with identity files |
 | Multi-Agent | `loom.runtime` | AgentRuntime for multi-agent lifecycle and delegation |
 | ACP | `loom.acp` | WebSocket inter-agent communication with Ed25519 auth |
+| MCP | `loom.mcp` | Model Context Protocol client — register external MCP tools with a ToolRegistry |
 | Server | `loom.server` | FastAPI factory with chat, streaming, session, and skill endpoints |
 | Routing | `loom.routing` | Message classification and model selection |
 | Config | `loom.config` | JSON config with CLI/env overlay resolution |

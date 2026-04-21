@@ -34,6 +34,7 @@ from loom.store.memory import MemoryStore, MemoryEntry
 from loom.store.vault import FilesystemVaultProvider, VaultProvider
 from loom.tools.vault import VaultToolHandler
 from loom.acp import AcpCallTool, AcpConfig
+from loom.mcp import McpClient, McpServerConfig, McpToolHandler
 from loom.hitl import (
     BrokerAskUserTool,
     CURRENT_SESSION_ID,
@@ -106,6 +107,9 @@ __all__ = [
     "VaultToolHandler",
     "AcpCallTool",
     "AcpConfig",
+    "McpClient",
+    "McpServerConfig",
+    "McpToolHandler",
     "BrokerAskUserTool",
     "CURRENT_SESSION_ID",
     "HitlBroker",
