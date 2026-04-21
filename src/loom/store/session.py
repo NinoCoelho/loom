@@ -51,7 +51,7 @@ class SessionStore:
         migrations = {
             "context": "TEXT",
             "title": "TEXT",
-            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP",
             "model": "TEXT",
             "input_tokens": "INTEGER DEFAULT 0",
             "output_tokens": "INTEGER DEFAULT 0",

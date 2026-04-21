@@ -156,7 +156,7 @@ class OpenAICompatibleProvider(LLMProvider):
     ) -> ChatResponse:
         payload = self._build_payload(messages, tools, model)
         try:
-            resp = await self._client.post("/v1/chat/completions", json=payload)
+            resp = await self._client.post("chat/completions", json=payload)
         except httpx.HTTPError as exc:
             raise LLMTransportError(f"HTTP request failed: {exc}") from exc
 
@@ -183,7 +183,7 @@ class OpenAICompatibleProvider(LLMProvider):
     ) -> AsyncIterator[StreamEvent]:
         payload = self._build_payload(messages, tools, model, stream=True)
         try:
-            async with self._client.stream("POST", "/v1/chat/completions", json=payload) as resp:
+            async with self._client.stream("POST", "chat/completions", json=payload) as resp:
                 if resp.status_code != 200:
                     body = await resp.aread()
                     raise LLMTransportError(
