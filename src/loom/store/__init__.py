@@ -1,4 +1,5 @@
 from loom.store.atomic import atomic_write as atomic_write
+from loom.store.keychain import KeychainStore as KeychainStore
 from loom.store.memory import (
     MemoryEntry as MemoryEntry,
 )
@@ -9,8 +10,10 @@ from loom.store.memory import (
     SearchHit as SearchHit,
 )
 from loom.store.secrets import ApiKeySecret as ApiKeySecret
+from loom.store.secrets import AwsSigV4Secret as AwsSigV4Secret
 from loom.store.secrets import BasicAuthSecret as BasicAuthSecret
 from loom.store.secrets import BearerTokenSecret as BearerTokenSecret
+from loom.store.secrets import JwtSigningKeySecret as JwtSigningKeySecret
 from loom.store.secrets import OAuth2ClientCredentialsSecret as OAuth2ClientCredentialsSecret
 from loom.store.secrets import PasswordSecret as PasswordSecret
 from loom.store.secrets import Secret as Secret
@@ -32,8 +35,11 @@ from loom.store.vault import (
 __all__ = [
     "atomic_write",
     "ApiKeySecret",
+    "AwsSigV4Secret",
     "BasicAuthSecret",
     "BearerTokenSecret",
+    "JwtSigningKeySecret",
+    "KeychainStore",
     "MemoryEntry",
     "MemoryStore",
     "OAuth2ClientCredentialsSecret",

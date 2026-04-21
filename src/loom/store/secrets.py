@@ -62,6 +62,29 @@ class SshPrivateKeySecret(TypedDict):
     passphrase: str | None
 
 
+class AwsSigV4Secret(TypedDict):
+    """AWS credentials for SigV4 request signing (RFC 0002 Phase C)."""
+
+    type: Literal["aws_sigv4"]
+    access_key_id: str
+    secret_access_key: str
+    session_token: str | None  # optional STS session token
+    region: str | None  # default region; may be overridden per-request via context
+
+
+class JwtSigningKeySecret(TypedDict):
+    """PEM private key (or HS256 shared secret) for JWT client-assertion (RFC 0002 Phase C)."""
+
+    type: Literal["jwt_signing_key"]
+    private_key_pem: str  # PEM private key for RS256/ES256; raw bytes/str for HS256
+    algorithm: Literal["RS256", "ES256", "HS256"]
+    key_id: str | None  # optional kid header claim
+    issuer: str  # iss claim
+    audience: str  # aud claim
+    subject: str | None  # sub claim (optional)
+    ttl_seconds: int  # token lifetime; default 300 when not provided
+
+
 Secret = (
     PasswordSecret
     | ApiKeySecret
@@ -69,6 +92,8 @@ Secret = (
     | BearerTokenSecret
     | OAuth2ClientCredentialsSecret
     | SshPrivateKeySecret
+    | AwsSigV4Secret
+    | JwtSigningKeySecret
 )
 
 
