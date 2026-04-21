@@ -17,7 +17,14 @@ from loom.skills.registry import SkillRegistry
 from loom.store.session import SessionStore
 from loom.tools.registry import ToolRegistry
 from loom.types import ChatMessage, Role
-from loom.server.schemas import ChatRequest, ChatReply, SessionInfo, SkillInfo
+from loom.server.schemas import (
+    ChatRequest,
+    ChatReply,
+    HeartbeatCreate,
+    HeartbeatInfo,
+    SessionInfo,
+    SkillInfo,
+)
 
 
 def create_app(
@@ -26,6 +33,9 @@ def create_app(
     skills: SkillRegistry | None = None,
     tool_registry: ToolRegistry | None = None,
     extra_routes: Any = None,
+    heartbeat_manager: Any = None,   # HeartbeatManager | None
+    heartbeat_scheduler: Any = None,  # HeartbeatScheduler | None
+    heartbeat_store: Any = None,      # HeartbeatStore | None
 ) -> FastAPI:
     app = FastAPI(title="Loom Agent", version="0.1.0")
     app.add_middleware(
@@ -42,6 +52,9 @@ def create_app(
     app.state.sessions = sessions
     app.state.skills = skills
     app.state.tools = tool_registry or ToolRegistry()
+    app.state.heartbeat_manager = heartbeat_manager
+    app.state.heartbeat_scheduler = heartbeat_scheduler
+    app.state.heartbeat_store = heartbeat_store
 
     @app.get("/health")
     async def health():
@@ -118,4 +131,81 @@ def create_app(
         async def list_skills():
             return [SkillInfo(name=s.name, description=s.description, trust=s.trust) for s in skills.list()]
 
+    if heartbeat_manager and heartbeat_store:
+        _register_heartbeat_routes(app, heartbeat_manager, heartbeat_scheduler, heartbeat_store)
+
     return app
+
+
+def _register_heartbeat_routes(
+    app: FastAPI,
+    manager: Any,
+    scheduler: Any,
+    store: Any,
+) -> None:
+    from fastapi import HTTPException
+
+    @app.get("/heartbeats", response_model=list[HeartbeatInfo])
+    async def list_heartbeats():
+        registry = manager._registry
+        runs = {r.heartbeat_id: r for r in store.list_runs()}
+        result = []
+        for record in registry.list():
+            run = runs.get(record.id)
+            result.append(HeartbeatInfo(
+                id=record.id,
+                name=record.name,
+                description=record.description,
+                schedule=record.schedule,
+                enabled=record.enabled,
+                last_check=run.last_check.isoformat() if run and run.last_check else None,
+                last_fired=run.last_fired.isoformat() if run and run.last_fired else None,
+                last_error=run.last_error if run else None,
+            ))
+        return result
+
+    @app.post("/heartbeats", response_model=dict)
+    async def create_heartbeat(body: HeartbeatCreate):
+        result = manager.invoke({
+            "action": "create",
+            "name": body.name,
+            "description": body.description,
+            "schedule": body.schedule,
+            "instructions": body.instructions,
+            "driver_code": body.driver_code,
+        })
+        if result.startswith("error:"):
+            raise HTTPException(status_code=400, detail=result)
+        return {"result": result}
+
+    @app.delete("/heartbeats/{heartbeat_id}", response_model=dict)
+    async def delete_heartbeat(heartbeat_id: str):
+        result = manager.invoke({"action": "delete", "name": heartbeat_id})
+        if result.startswith("error:"):
+            raise HTTPException(status_code=404, detail=result)
+        return {"result": result}
+
+    @app.post("/heartbeats/{heartbeat_id}/enable", response_model=dict)
+    async def enable_heartbeat(heartbeat_id: str):
+        result = manager.invoke({"action": "enable", "name": heartbeat_id})
+        if result.startswith("error:"):
+            raise HTTPException(status_code=404, detail=result)
+        return {"result": result}
+
+    @app.post("/heartbeats/{heartbeat_id}/disable", response_model=dict)
+    async def disable_heartbeat(heartbeat_id: str):
+        result = manager.invoke({"action": "disable", "name": heartbeat_id})
+        if result.startswith("error:"):
+            raise HTTPException(status_code=404, detail=result)
+        return {"result": result}
+
+    if scheduler:
+        @app.post("/heartbeats/{heartbeat_id}/trigger", response_model=dict)
+        async def trigger_heartbeat(heartbeat_id: str):
+            try:
+                turns = await scheduler.trigger(heartbeat_id)
+                return {"fired": len(turns), "heartbeat_id": heartbeat_id}
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc))
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))

@@ -40,3 +40,22 @@ class SkillInfo(BaseModel):
 
 class RespondPayload(BaseModel):
     response: str
+
+
+class HeartbeatInfo(BaseModel):
+    id: str
+    name: str
+    description: str
+    schedule: str
+    enabled: bool
+    last_check: str | None = None
+    last_fired: str | None = None
+    last_error: str | None = None
+
+
+class HeartbeatCreate(BaseModel):
+    name: str
+    description: str
+    schedule: str
+    instructions: str = ""
+    driver_code: str
