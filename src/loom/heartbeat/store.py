@@ -16,7 +16,7 @@ def _to_ts(dt: datetime | None) -> str | None:
 
 
 def _from_ts(s: str | None) -> datetime | None:
-    return datetime.strptime(s, _TS_FMT) if s else None
+    return datetime.strptime(s, _TS_FMT).replace(tzinfo=UTC) if s else None
 
 
 class HeartbeatStore:

@@ -44,13 +44,25 @@ class SessionStore:
             )
         """)
         self._db.commit()
-        # Idempotent migration: add context column if missing (for pre-existing DBs)
+        # Idempotent migrations: add columns if missing (for pre-existing DBs)
         cols = {
             row[1] for row in self._db.execute("PRAGMA table_info(sessions)").fetchall()
         }
-        if "context" not in cols:
-            self._db.execute("ALTER TABLE sessions ADD COLUMN context TEXT")
-            self._db.commit()
+        migrations = {
+            "context": "TEXT",
+            "title": "TEXT",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "model": "TEXT",
+            "input_tokens": "INTEGER DEFAULT 0",
+            "output_tokens": "INTEGER DEFAULT 0",
+            "tool_call_count": "INTEGER DEFAULT 0",
+        }
+        for col_name, col_def in migrations.items():
+            if col_name not in cols:
+                self._db.execute(
+                    f"ALTER TABLE sessions ADD COLUMN {col_name} {col_def}"
+                )
+        self._db.commit()
 
     def close(self) -> None:
         if self._closed:
