@@ -1,6 +1,6 @@
 # RFC 0003 — `SshCallTool` (asyncssh)
 
-- **Status**: Draft
+- **Status**: Implemented (v0.3, Phase A — full)
 - **Author**: —
 - **Target release**: 0.3 (after RFC 0002 Phase A)
 - **Depends on**: RFC 0002 (for SSH appliers)
