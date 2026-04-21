@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0" /></a>
   <img src="https://img.shields.io/badge/python-3.12%2B-blue.svg" alt="Python 3.12+" />
   <img src="https://img.shields.io/badge/status-alpha-orange.svg" alt="Status: Alpha" />
 </p>
@@ -296,7 +296,7 @@ The framework works for the patterns we've built. Does it work for yours? We're 
 - **You'll shape the API.** Early contributors have outsized influence on naming, patterns, and conventions.
 - **Real systems engineering.** Loom touches async Python, SQLite, HTTP clients, WebSocket protocols, cryptography, LLM APIs, and streaming — it's a genuine systems project, not another wrapper.
 - **Your agents get better.** If you're building agentic applications, contributing to the framework means your own tools improve.
-- **MIT licensed, no CLA.** Fork it, use it, contribute back if you want.
+- **Apache 2.0 licensed, no CLA.** Fork it, use it, contribute back if you want.
 
 ### How to Start
 
@@ -311,4 +311,4 @@ The framework works for the patterns we've built. Does it work for yours? We're 
 
 ## License
 
-MIT
+Apache License 2.0

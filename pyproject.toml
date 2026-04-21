@@ -8,13 +8,13 @@ version = "0.2.0"
 description = "A reusable agentic framework with tool calling, skills, streaming, HITL, and multi-provider support"
 readme = "README.md"
 requires-python = ">=3.12"
-license = "MIT"
+license = "Apache-2.0"
 authors = [{ name = "Loom Contributors" }]
 keywords = ["agent", "llm", "ai", "framework", "tools", "skills"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
