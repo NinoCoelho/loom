@@ -35,7 +35,9 @@ from loom.store.secrets import (
     BasicAuthSecret,
     BearerTokenSecret,
     OAuth2ClientCredentialsSecret,
+    PasswordSecret,
     Secret,
+    SshPrivateKeySecret,
 )
 
 # ---------------------------------------------------------------------------
@@ -216,3 +218,95 @@ class ApiKeyStringApplier:
 
     async def apply(self, secret: ApiKeySecret, context: dict) -> str:  # type: ignore[override]
         return secret["value"]
+
+
+# ---------------------------------------------------------------------------
+# SSH appliers (RFC 0003)
+# ---------------------------------------------------------------------------
+
+
+
+class SshConnectArgs(dict):
+    """Normalized connection args fed to ``asyncssh.connect()``.
+
+    Keys:
+    - ``host`` (str): target hostname (from SecretMetadata).
+    - ``port`` (int): SSH port (default 22).
+    - ``username`` (str): remote username.
+    - ``password`` (str, optional): plaintext password (PasswordSecret path).
+    - ``client_keys`` (list[asyncssh.SSHKey], optional): loaded private keys
+      (SshPrivateKeySecret path).
+    - ``known_hosts`` (str | None | False): path to known_hosts file, None for default,
+      or False to disable checking (dev only — emits a warning).
+    """
+
+
+class SshPasswordApplier:
+    """Applies a ``password`` secret as SSH password authentication.
+
+    Reads ``hostname``, ``port``, and ``username`` from ``SecretMetadata``
+    (via the ``context["metadata"]`` key populated by the tool).
+
+    Context keys:
+    - ``metadata`` (dict): SecretMetadata.metadata for the scope (hostname, port, username).
+
+    Output: ``SshConnectArgs`` with host/port/username/password.
+    """
+
+    secret_type: str = "password"
+
+    async def apply(self, secret: PasswordSecret, context: dict) -> SshConnectArgs:  # type: ignore[override]
+        meta = context.get("metadata") or {}
+        host = meta.get("hostname") or meta.get("host") or ""
+        port = int(meta.get("port", 22))
+        username = meta.get("username") or meta.get("user") or ""
+        args = SshConnectArgs(
+            host=host,
+            port=port,
+            username=username,
+            password=secret["value"],
+        )
+        return args
+
+
+class SshKeyApplier:
+    """Applies an ``ssh_private_key`` secret as SSH public-key authentication.
+
+    Reads ``hostname``, ``port``, and ``username`` from ``SecretMetadata``
+    (via the ``context["metadata"]`` key populated by the tool).
+
+    Context keys:
+    - ``metadata`` (dict): SecretMetadata.metadata for the scope (hostname, port, username).
+
+    Output: ``SshConnectArgs`` with host/port/username/client_keys (asyncssh key object).
+
+    Note: asyncssh is imported lazily; if ``loom[ssh]`` is not installed an
+    ``ImportError`` is raised at apply-time with an actionable message.
+    """
+
+    secret_type: str = "ssh_private_key"
+
+    async def apply(self, secret: SshPrivateKeySecret, context: dict) -> SshConnectArgs:  # type: ignore[override]
+        try:
+            import asyncssh  # lazy — only required when loom[ssh] is installed
+        except ImportError as exc:
+            raise ImportError(
+                "asyncssh is required for SSH key auth. Install it with: pip install 'loom[ssh]'"
+            ) from exc
+
+        passphrase = secret.get("passphrase")
+        key = asyncssh.import_private_key(
+            secret["key_pem"],
+            passphrase=passphrase.encode() if passphrase else None,
+        )
+        meta = context.get("metadata") or {}
+        host = meta.get("hostname") or meta.get("host") or ""
+        port = int(meta.get("port", 22))
+        username = meta.get("username") or meta.get("user") or ""
+        args = SshConnectArgs(
+            host=host,
+            port=port,
+            username=username,
+            client_keys=[key],
+        )
+        return args

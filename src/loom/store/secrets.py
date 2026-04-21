@@ -191,6 +191,19 @@ class SecretStore:
             return None
         return entry["secret"]  # type: ignore[return-value]
 
+    async def get_metadata(self, scope: str) -> dict | None:
+        """Return the free-form metadata dict for *scope*, or ``None`` if absent.
+
+        This is the ``metadata`` kwarg passed to ``put()``.  Useful for
+        transports (e.g. SSH) that need extra connection parameters stored
+        alongside the secret (hostname, port, username).
+        """
+        data = self._read_raw()
+        entry = data.get(scope)
+        if entry is None:
+            return None
+        return entry.get("metadata", {})
+
     async def list(self, scope_prefix: str | None = None) -> list[SecretMetadata]:
         """Return metadata for all stored secrets, optionally filtered by *scope_prefix*."""
         data = self._read_raw()

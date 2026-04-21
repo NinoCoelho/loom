@@ -110,6 +110,13 @@ class CredentialResolver:
         if secret is None:
             raise ScopeNotFoundError(scope)
 
+        # Inject scope metadata so appliers (e.g. SSH) can read hostname/port/username
+        # without callers having to fetch it separately.  Only set if not already provided.
+        if "metadata" not in merged_context and hasattr(self._store, "get_metadata"):
+            scope_meta = await self._store.get_metadata(scope)  # type: ignore[union-attr]
+            if scope_meta is not None:
+                merged_context["metadata"] = scope_meta
+
         secret_type: str = secret["type"]  # type: ignore[index]
         applier = self._appliers.get((secret_type, transport))
         if applier is None:

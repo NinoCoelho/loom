@@ -1,4 +1,4 @@
-"""loom.auth — credential appliers, resolver, and policies (RFC 0002).
+"""loom.auth — credential appliers, resolver, and policies (RFC 0002 + RFC 0003).
 
 Public surface::
 
@@ -22,6 +22,10 @@ Public surface::
         GateDecision,
         CredentialDenied,
         PolicyEnforcer,
+        # RFC 0003 — SSH appliers
+        SshConnectArgs,
+        SshPasswordApplier,
+        SshKeyApplier,
     )
 
 Layer 2 of RFC 0002: appliers turn typed ``Secret`` objects into
@@ -43,6 +47,9 @@ from loom.auth.appliers import (
     BasicHttpApplier,
     BearerHttpApplier,
     OAuth2CCHttpApplier,
+    SshConnectArgs,
+    SshKeyApplier,
+    SshPasswordApplier,
 )
 from loom.auth.enforcer import CredentialDenied, GateDecision, PolicyEnforcer
 from loom.auth.errors import (
@@ -75,4 +82,8 @@ __all__ = [
     "GateDecision",
     "CredentialDenied",
     "PolicyEnforcer",
+    # RFC 0003 — SSH appliers
+    "SshConnectArgs",
+    "SshPasswordApplier",
+    "SshKeyApplier",
 ]

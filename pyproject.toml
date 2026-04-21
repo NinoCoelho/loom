@@ -20,10 +20,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 
-[project.urls]
-Homepage = "https://github.com/NinoCoelho/loom"
-Source = "https://github.com/NinoCoelho/loom"
-Changelog = "https://github.com/NinoCoelho/loom/blob/main/CHANGELOG.md"
 dependencies = [
     "pydantic>=2.0",
     "httpx>=0.27",
@@ -34,12 +30,18 @@ dependencies = [
     "cryptography>=41",
 ]
 
+[project.urls]
+Homepage = "https://github.com/NinoCoelho/loom"
+Source = "https://github.com/NinoCoelho/loom"
+Changelog = "https://github.com/NinoCoelho/loom/blob/main/CHANGELOG.md"
+
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.30"]
 acp = ["websockets>=12"]
 mcp = ["mcp>=1.0"]
+ssh = ["asyncssh>=2.14"]
 tui = ["prompt-toolkit>=3.0", "rich>=13.0", "typer>=0.12"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.5", "cryptography>=41", "websockets>=12", "mcp>=1.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.5", "cryptography>=41", "websockets>=12", "mcp>=1.0", "asyncssh>=2.14"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/loom"]
@@ -54,3 +56,8 @@ select = ["E", "F", "I", "UP"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "asyncssh>=2.22.0",
+]
