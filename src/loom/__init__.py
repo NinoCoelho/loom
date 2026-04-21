@@ -17,6 +17,9 @@ from loom.auth import (
     PolicyStore,
     ScopeNotFoundError,
     SecretExpiredError,
+    SshConnectArgs,
+    SshKeyApplier,
+    SshPasswordApplier,
 )
 from loom.heartbeat import (
     HeartbeatDriver,
@@ -71,6 +74,7 @@ from loom.store.secrets import (
 from loom.store.vault import FilesystemVaultProvider, VaultProvider
 from loom.tools.base import ToolHandler, ToolResult
 from loom.tools.registry import ToolRegistry
+from loom.tools.ssh import SshCallTool
 from loom.tools.vault import VaultToolHandler
 from loom.types import (
     ChatMessage,
@@ -114,6 +118,10 @@ __all__ = [
     "GateDecision",
     "CredentialDenied",
     "PolicyEnforcer",
+    # auth — RFC 0003 SSH appliers
+    "SshConnectArgs",
+    "SshPasswordApplier",
+    "SshKeyApplier",
     # store.secrets
     "ApiKeySecret",
     "BasicAuthSecret",
@@ -158,6 +166,7 @@ __all__ = [
     "StopReason",
     "StreamEvent",
     "ToolCall",
+    "SshCallTool",
     "ToolHandler",
     "ToolRegistry",
     "ToolResult",
