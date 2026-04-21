@@ -5,7 +5,9 @@ from loom.heartbeat.store import HeartbeatStore
 
 @pytest.fixture
 def store(tmp_dir):
-    return HeartbeatStore(tmp_dir / "heartbeats.sqlite")
+    heartbeat_store = HeartbeatStore(tmp_dir / "heartbeats.sqlite")
+    yield heartbeat_store
+    heartbeat_store.close()
 
 
 class TestHeartbeatStore:

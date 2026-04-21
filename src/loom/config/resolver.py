@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
-from loom.config.base import LoomConfig, ProviderConfig
+from loom.config.base import LoomConfig
 
 _ENV_MAP = {
     "base_url": "LOOM_LLM_BASE_URL",

@@ -25,7 +25,7 @@ DEFAULT_DEVICE_KEY_PATH = Path("~/.loom/device_key").expanduser()
 class DeviceKeypair:
     """A loaded Ed25519 device keypair plus its public-key hex encoding."""
 
-    private_key: "Ed25519PrivateKey"
+    private_key: Ed25519PrivateKey
     public_hex: str
 
 
@@ -37,8 +37,7 @@ def _require_cryptography():
         )
     except ImportError as exc:
         raise ImportError(
-            "loom.acp requires the 'cryptography' package. "
-            "Install with: pip install 'loom[acp]'"
+            "loom.acp requires the 'cryptography' package. Install with: pip install 'loom[acp]'"
         ) from exc
     return serialization, Ed25519PrivateKey
 
@@ -59,8 +58,7 @@ def load_or_create_keypair(
         private_key = serialization.load_pem_private_key(pem, password=None)
         if not isinstance(private_key, Ed25519PrivateKey):
             raise TypeError(
-                f"Expected Ed25519 key in {key_path}, "
-                f"got {type(private_key).__name__}"
+                f"Expected Ed25519 key in {key_path}, got {type(private_key).__name__}"
             )
     else:
         key_path.parent.mkdir(parents=True, exist_ok=True)

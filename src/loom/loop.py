@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
-from loom.errors import LLMTransportError
 from loom.llm.base import LLMProvider
 from loom.llm.registry import ProviderRegistry
 from loom.prompt import (
@@ -33,27 +32,57 @@ from loom.types import (
     ToolExecResultEvent,
     ToolExecStartEvent,
     ToolSpec,
-    Usage,
 )
 
-
-_DEFAULT_AFFIRMATIVES = frozenset({
-    "yes", "y", "ok", "okay", "sure", "correct", "right", "yeah", "yep",
-    "go ahead", "proceed", "continue", "please", "do it",
-})
-_DEFAULT_NEGATIVES = frozenset({
-    "no", "n", "nope", "cancel", "stop", "don't", "dont", "negative",
-})
+_DEFAULT_AFFIRMATIVES = frozenset(
+    {
+        "yes",
+        "y",
+        "ok",
+        "okay",
+        "sure",
+        "correct",
+        "right",
+        "yeah",
+        "yep",
+        "go ahead",
+        "proceed",
+        "continue",
+        "please",
+        "do it",
+    }
+)
+_DEFAULT_NEGATIVES = frozenset(
+    {
+        "no",
+        "n",
+        "nope",
+        "cancel",
+        "stop",
+        "don't",
+        "dont",
+        "negative",
+    }
+)
 
 if TYPE_CHECKING:
     from loom.home import AgentHome
     from loom.permissions import AgentPermissions
     from loom.store.memory import MemoryStore
+    from loom.tools.base import ToolHandler
 
 
 class AgentTurn:
-    __slots__ = ("reply", "iterations", "skills_touched", "messages",
-                 "input_tokens", "output_tokens", "tool_calls", "model")
+    __slots__ = (
+        "reply",
+        "iterations",
+        "skills_touched",
+        "messages",
+        "input_tokens",
+        "output_tokens",
+        "tool_calls",
+        "model",
+    )
 
     def __init__(
         self,
@@ -92,7 +121,10 @@ class AgentConfig:
         affirmatives: frozenset[str] | set[str] | None = None,
         negatives: frozenset[str] | set[str] | None = None,
         serialize_event: Callable[[StreamEvent], Any] | None = None,
-        before_llm_call: Callable[[list[ChatMessage]], list[ChatMessage] | Awaitable[list[ChatMessage]]] | None = None,
+        before_llm_call: Callable[
+            [list[ChatMessage]], list[ChatMessage] | Awaitable[list[ChatMessage]]
+        ]
+        | None = None,
     ) -> None:
         self.max_iterations = max_iterations
         self.model = model
@@ -109,17 +141,15 @@ class AgentConfig:
         # #7: override the reply emitted when max_iterations is hit.
         self.limit_message_builder = limit_message_builder
         # #8: extend or replace the yes/no vocab.
-        self.affirmatives = frozenset(affirmatives) if affirmatives is not None else _DEFAULT_AFFIRMATIVES
+        self.affirmatives = (
+            frozenset(affirmatives) if affirmatives is not None else _DEFAULT_AFFIRMATIVES
+        )
         self.negatives = frozenset(negatives) if negatives is not None else _DEFAULT_NEGATIVES
         # #9: wire a custom serializer for stream events (e.g. to emit
         # dict-based SSE instead of Pydantic instances).
         self.serialize_event = serialize_event
         # #11: rewrite the message list at the top of every loop iteration.
         self.before_llm_call = before_llm_call
-
-
-from loom.tools.base import ToolHandler
-
 
 class Agent:
     def __init__(
@@ -160,7 +190,9 @@ class Agent:
             provider, upstream = self._provider_registry.resolve(model_id)
             return provider, upstream
         if self._provider_registry and self._provider_registry.default_model:
-            provider, upstream = self._provider_registry.resolve(self._provider_registry.default_model)
+            provider, upstream = self._provider_registry.resolve(
+                self._provider_registry.default_model
+            )
             return provider, upstream
         if self._provider:
             return self._provider, model_id or ""
@@ -184,7 +216,10 @@ class Agent:
                     builder.add(mem_section)
         elif self._config.system_preamble:
             from loom.prompt import PromptSection
-            builder.add(PromptSection(name="preamble", content=self._config.system_preamble, priority=10))
+
+            builder.add(
+                PromptSection(name="preamble", content=self._config.system_preamble, priority=10)
+            )
 
         if self._skills:
             desc_section = load_skills_section(self._skills.descriptions())
@@ -206,10 +241,10 @@ class Agent:
         if last_q == -1:
             return None
         start = max(0, last_q - 200)
-        segment = reply[start:last_q + 1]
+        segment = reply[start : last_q + 1]
         first_nl = segment.find("\n")
         if first_nl >= 0:
-            segment = segment[first_nl + 1:]
+            segment = segment[first_nl + 1 :]
         if len(segment) > 500:
             segment = segment[-500:]
         return segment.strip()
@@ -217,9 +252,9 @@ class Agent:
     def _annotate_short_reply(self, user_text: str) -> str | None:
         stripped = user_text.strip().lower()
         if stripped in self._config.affirmatives and self._pending_question:
-            return f"{user_text} (affirmative answer to: \"{self._pending_question}\")"
+            return f'{user_text} (affirmative answer to: "{self._pending_question}")'
         if stripped in self._config.negatives and self._pending_question:
-            return f"{user_text} (negative answer to: \"{self._pending_question}\")"
+            return f'{user_text} (negative answer to: "{self._pending_question}")'
         return None
 
     def _emit(self, kind: str, payload: dict[str, Any] | None = None) -> None:
@@ -239,9 +274,7 @@ class Agent:
         tools: list[ToolSpec],
         model: str,
     ) -> ChatResponse:
-        return await with_retry(
-            lambda: provider.chat(messages, tools=tools, model=model)
-        )
+        return await with_retry(lambda: provider.chat(messages, tools=tools, model=model))
 
     async def _call_llm_stream(
         self,
@@ -335,7 +368,10 @@ class Agent:
             total_input += response.usage.input_tokens
             total_output += response.usage.output_tokens
 
-            if response.stop_reason not in (StopReason.TOOL_USE,) or not response.message.tool_calls:
+            if (
+                response.stop_reason not in (StopReason.TOOL_USE,)
+                or not response.message.tool_calls
+            ):
                 reply = response.message.content or ""
                 self._pending_question = self._extract_pending_question(reply)
 
@@ -471,6 +507,7 @@ class Agent:
                 )
             except Exception as exc:
                 from loom.errors import classify_api_error
+
                 cls = classify_api_error(exc)
                 err_ev = ErrorEvent(
                     message=str(exc),
@@ -494,7 +531,11 @@ class Agent:
                         if event.type == "tool_call_delta":
                             idx = event.index
                             if idx not in tool_call_parts:
-                                tool_call_parts[idx] = {"id": event.id, "name": event.name, "arguments": ""}
+                                tool_call_parts[idx] = {
+                                    "id": event.id,
+                                    "name": event.name,
+                                    "arguments": "",
+                                }
                             if event.id:
                                 tool_call_parts[idx]["id"] = event.id
                             if event.name:
@@ -512,6 +553,7 @@ class Agent:
                 # partial assistant output. Surface as ErrorEvent + Done
                 # so the caller can tear down cleanly.
                 from loom.errors import classify_api_error
+
                 cls = classify_api_error(exc)
                 err_ev = ErrorEvent(
                     message=str(exc),
@@ -519,9 +561,20 @@ class Agent:
                     status_code=cls.status_code,
                     retryable=cls.retryable,
                 )
-                self._emit("stream_error", {"phase": "iterate", "forwarded": has_forwarded, "message": str(exc)})
+                self._emit(
+                    "stream_error",
+                    {"phase": "iterate", "forwarded": has_forwarded, "message": str(exc)},
+                )
                 yield _wrap(err_ev)
-                yield _wrap(DoneEvent(context={"model": model_name, "iterations": iteration, "partial": has_forwarded}))
+                yield _wrap(
+                    DoneEvent(
+                        context={
+                            "model": model_name,
+                            "iterations": iteration,
+                            "partial": has_forwarded,
+                        }
+                    )
+                )
                 return
 
             if stop_reason not in (StopReason.TOOL_USE,) or not tool_call_parts:
@@ -543,14 +596,18 @@ class Agent:
                 if self._config.on_after_turn:
                     self._config.on_after_turn(turn)
                 final_assistant = ChatMessage(role=Role.ASSISTANT, content=reply)
-                yield _wrap(DoneEvent(context={
-                    "model": model_name,
-                    "iterations": iteration + 1,
-                    "input_tokens": total_input,
-                    "output_tokens": total_output,
-                    "tool_calls": total_tool_calls,
-                    "messages": [m.model_dump() for m in all_messages + [final_assistant]],
-                }))
+                yield _wrap(
+                    DoneEvent(
+                        context={
+                            "model": model_name,
+                            "iterations": iteration + 1,
+                            "input_tokens": total_input,
+                            "output_tokens": total_output,
+                            "tool_calls": total_tool_calls,
+                            "messages": [m.model_dump() for m in all_messages + [final_assistant]],
+                        }
+                    )
+                )
                 return
 
             assembled_tcs: list[ToolCall] = []
@@ -563,17 +620,19 @@ class Agent:
                 )
                 assembled_tcs.append(tc)
 
-            all_messages.append(ChatMessage(
-                role=Role.ASSISTANT,
-                content="".join(content_parts) or None,
-                tool_calls=assembled_tcs,
-            ))
+            all_messages.append(
+                ChatMessage(
+                    role=Role.ASSISTANT,
+                    content="".join(content_parts) or None,
+                    tool_calls=assembled_tcs,
+                )
+            )
 
             for tc in assembled_tcs:
                 total_tool_calls += 1
-                yield _wrap(ToolExecStartEvent(
-                    tool_call_id=tc.id, name=tc.name, arguments=tc.arguments
-                ))
+                yield _wrap(
+                    ToolExecStartEvent(tool_call_id=tc.id, name=tc.name, arguments=tc.arguments)
+                )
                 is_error = False
                 if tc.name == "activate_skill" and self._skills:
                     args = json.loads(tc.arguments) if tc.arguments else {}
@@ -588,19 +647,23 @@ class Agent:
                 else:
                     result_text, is_error = await self._dispatch_tool_result(tc)
 
-                yield _wrap(ToolExecResultEvent(
-                    tool_call_id=tc.id,
-                    name=tc.name,
-                    text=result_text,
-                    is_error=is_error,
-                ))
+                yield _wrap(
+                    ToolExecResultEvent(
+                        tool_call_id=tc.id,
+                        name=tc.name,
+                        text=result_text,
+                        is_error=is_error,
+                    )
+                )
 
-                all_messages.append(ChatMessage(
-                    role=Role.TOOL,
-                    content=result_text,
-                    tool_call_id=tc.id,
-                    name=tc.name,
-                ))
+                all_messages.append(
+                    ChatMessage(
+                        role=Role.TOOL,
+                        content=result_text,
+                        tool_call_id=tc.id,
+                        name=tc.name,
+                    )
+                )
 
         limit_reply = (
             self._config.limit_message_builder(self._config.max_iterations)
@@ -610,12 +673,16 @@ class Agent:
         yield _wrap(ContentDeltaEvent(delta=limit_reply))
         final_assistant = ChatMessage(role=Role.ASSISTANT, content=limit_reply)
         yield _wrap(LimitReachedEvent(iterations=self._config.max_iterations))
-        yield _wrap(DoneEvent(context={
-            "model": model_name,
-            "iterations": self._config.max_iterations,
-            "input_tokens": total_input,
-            "output_tokens": total_output,
-            "tool_calls": total_tool_calls,
-            "messages": [m.model_dump() for m in all_messages + [final_assistant]],
-            "limit_reached": True,
-        }))
+        yield _wrap(
+            DoneEvent(
+                context={
+                    "model": model_name,
+                    "iterations": self._config.max_iterations,
+                    "input_tokens": total_input,
+                    "output_tokens": total_output,
+                    "tool_calls": total_tool_calls,
+                    "messages": [m.model_dump() for m in all_messages + [final_assistant]],
+                    "limit_reached": True,
+                }
+            )
+        )

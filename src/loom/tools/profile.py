@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from loom.home import AgentHome
 from loom.permissions import AgentPermissions
-from loom.types import ToolSpec
 from loom.tools.base import ToolHandler, ToolResult
+from loom.types import ToolSpec
 
 
 class EditIdentityTool(ToolHandler):

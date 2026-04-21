@@ -5,11 +5,10 @@ from pathlib import Path
 
 import frontmatter
 
-from loom.store.atomic import atomic_write
-from loom.skills.loader import load_skill
 from loom.skills.guard import SkillGuard
+from loom.skills.loader import load_skill
 from loom.skills.registry import SkillRegistry
-from loom.skills.types import Skill
+from loom.store.atomic import atomic_write
 
 
 class SkillManager:

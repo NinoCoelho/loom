@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 # Natural-language interval patterns
 _INTERVAL_RE = re.compile(
@@ -100,6 +99,7 @@ def is_due(schedule: Schedule, last_check: datetime | None, now: datetime) -> bo
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse_field(field: str, lo: int, hi: int) -> frozenset[int]:
     values: set[int] = set()

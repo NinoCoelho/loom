@@ -24,8 +24,9 @@ from __future__ import annotations
 
 import json
 import re
-from enum import Enum
-from typing import Any, Callable
+from collections.abc import Callable
+from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -55,33 +56,33 @@ class MalformedOutputError(LLMError):
 # ── Taxonomy ────────────────────────────────────────────────────────────
 
 
-class FailoverReason(str, Enum):
+class FailoverReason(StrEnum):
     """Why an LLM call failed — drives recovery strategy."""
 
     # Authentication / authorization
-    AUTH = "auth"                              # Transient auth (401/403) — rotate/refresh
-    AUTH_PERMANENT = "auth_permanent"          # Auth still fails after refresh — abort
+    AUTH = "auth"  # Transient auth (401/403) — rotate/refresh
+    AUTH_PERMANENT = "auth_permanent"  # Auth still fails after refresh — abort
 
     # Billing / quota
-    BILLING = "billing"                        # 402 / confirmed exhaustion — rotate immediately
-    RATE_LIMIT = "rate_limit"                  # 429 / transient quota — backoff + rotate
+    BILLING = "billing"  # 402 / confirmed exhaustion — rotate immediately
+    RATE_LIMIT = "rate_limit"  # 429 / transient quota — backoff + rotate
 
     # Server-side
-    OVERLOADED = "overloaded"                  # 503 / 529 — backoff
-    SERVER_ERROR = "server_error"              # 500 / 502 — retry
+    OVERLOADED = "overloaded"  # 503 / 529 — backoff
+    SERVER_ERROR = "server_error"  # 500 / 502 — retry
 
     # Transport
-    TIMEOUT = "timeout"                        # Connection / read timeout
+    TIMEOUT = "timeout"  # Connection / read timeout
 
     # Context / payload
-    CONTEXT_OVERFLOW = "context_overflow"      # Too large for model — compress
-    PAYLOAD_TOO_LARGE = "payload_too_large"    # 413
+    CONTEXT_OVERFLOW = "context_overflow"  # Too large for model — compress
+    PAYLOAD_TOO_LARGE = "payload_too_large"  # 413
 
     # Model
-    MODEL_NOT_FOUND = "model_not_found"        # 404 / invalid model — fallback
+    MODEL_NOT_FOUND = "model_not_found"  # 404 / invalid model — fallback
 
     # Request format
-    FORMAT_ERROR = "format_error"              # 400 bad request — abort / strip + retry
+    FORMAT_ERROR = "format_error"  # 400 bad request — abort / strip + retry
 
     # Legacy reasons kept for back-compat with 0.2 callers.
     BAD_REQUEST = "bad_request"
@@ -89,13 +90,13 @@ class FailoverReason(str, Enum):
 
     # Provider-specific
     THINKING_SIGNATURE = "thinking_signature"  # Anthropic thinking block sig invalid
-    LONG_CONTEXT_TIER = "long_context_tier"    # Anthropic extra-usage tier gate
+    LONG_CONTEXT_TIER = "long_context_tier"  # Anthropic extra-usage tier gate
 
     # Catch-all
     UNKNOWN = "unknown"
 
 
-class RecoveryAction(str, Enum):
+class RecoveryAction(StrEnum):
     RETRY = "retry"
     RETRY_AFTER_BACKOFF = "retry_after_backoff"
     ROTATE_CREDENTIAL = "rotate_credential"
@@ -331,16 +332,24 @@ _AUTH_PATTERNS = [
     "access denied",
 ]
 
-_TRANSPORT_ERROR_TYPES = frozenset({
-    "ReadTimeout", "ConnectTimeout", "PoolTimeout",
-    "ConnectError", "RemoteProtocolError",
-    "ConnectionError", "ConnectionResetError",
-    "ConnectionAbortedError", "BrokenPipeError",
-    "TimeoutError", "ReadError",
-    "ServerDisconnectedError",
-    "APIConnectionError",
-    "APITimeoutError",
-})
+_TRANSPORT_ERROR_TYPES = frozenset(
+    {
+        "ReadTimeout",
+        "ConnectTimeout",
+        "PoolTimeout",
+        "ConnectError",
+        "RemoteProtocolError",
+        "ConnectionError",
+        "ConnectionResetError",
+        "ConnectionAbortedError",
+        "BrokenPipeError",
+        "TimeoutError",
+        "ReadError",
+        "ServerDisconnectedError",
+        "APIConnectionError",
+        "APITimeoutError",
+    }
+)
 
 _SERVER_DISCONNECT_PATTERNS = [
     "server disconnected",
@@ -567,11 +576,7 @@ def classify_api_error(
     if status_code == 400 and "signature" in error_msg and "thinking" in error_msg:
         return _result(FailoverReason.THINKING_SIGNATURE, retryable=True)
 
-    if (
-        status_code == 429
-        and "extra usage" in error_msg
-        and "long context" in error_msg
-    ):
+    if status_code == 429 and "extra usage" in error_msg and "long context" in error_msg:
         return _result(
             FailoverReason.LONG_CONTEXT_TIER,
             retryable=True,
@@ -581,9 +586,14 @@ def classify_api_error(
     # ── 2. HTTP status code classification ──────────────────────────
     if status_code is not None:
         classified = _classify_by_status(
-            status_code, error_msg, error_code, body,
-            provider=provider_lower, model=model_lower,
-            approx_tokens=approx_tokens, context_length=context_length,
+            status_code,
+            error_msg,
+            error_code,
+            body,
+            provider=provider_lower,
+            model=model_lower,
+            approx_tokens=approx_tokens,
+            context_length=context_length,
             num_messages=num_messages,
             result_fn=_result,
         )
@@ -598,7 +608,8 @@ def classify_api_error(
 
     # ── 4. Message pattern matching ─────────────────────────────────
     classified = _classify_by_message(
-        error_msg, error_type,
+        error_msg,
+        error_type,
         approx_tokens=approx_tokens,
         context_length=context_length,
         result_fn=_result,
@@ -610,9 +621,7 @@ def classify_api_error(
     is_disconnect = any(p in error_msg for p in _SERVER_DISCONNECT_PATTERNS)
     if is_disconnect and not status_code:
         is_large = (
-            approx_tokens > context_length * 0.6
-            or approx_tokens > 120_000
-            or num_messages > 200
+            approx_tokens > context_length * 0.6 or approx_tokens > 120_000 or num_messages > 200
         )
         if is_large:
             return _result(
@@ -701,8 +710,11 @@ def _classify_by_status(
 
     if status_code == 400:
         return _classify_400(
-            error_msg, error_code, body,
-            provider=provider, model=model,
+            error_msg,
+            error_code,
+            body,
+            provider=provider,
+            model=model,
             approx_tokens=approx_tokens,
             context_length=context_length,
             num_messages=num_messages,
@@ -831,11 +843,7 @@ def _classify_400(
         if not err_body_msg:
             err_body_msg = (body.get("message") or "").strip().lower()
     is_generic = len(err_body_msg) < 30 or err_body_msg in ("error", "")
-    is_large = (
-        approx_tokens > context_length * 0.4
-        or approx_tokens > 80_000
-        or num_messages > 80
-    )
+    is_large = approx_tokens > context_length * 0.4 or approx_tokens > 80_000 or num_messages > 80
 
     if is_generic and is_large:
         return result_fn(
@@ -913,9 +921,7 @@ def _classify_by_message(
 
     has_usage_limit = any(p in error_msg for p in _USAGE_LIMIT_PATTERNS)
     if has_usage_limit:
-        has_transient_signal = any(
-            p in error_msg for p in _USAGE_LIMIT_TRANSIENT_SIGNALS
-        )
+        has_transient_signal = any(p in error_msg for p in _USAGE_LIMIT_TRANSIENT_SIGNALS)
         if has_transient_signal:
             return result_fn(
                 FailoverReason.RATE_LIMIT,
@@ -984,9 +990,7 @@ def _extract_status_code(error: Exception) -> int | None:
         code = getattr(current, "status", None)
         if isinstance(code, int) and 100 <= code < 600:
             return code
-        cause = getattr(current, "__cause__", None) or getattr(
-            current, "__context__", None
-        )
+        cause = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
         if cause is None or cause is current:
             break
         current = cause

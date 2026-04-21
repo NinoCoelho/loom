@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import re
-from loom.skills.types import SkillGuardVerdict
 
+from loom.skills.types import SkillGuardVerdict
 
 _DANGEROUS_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
-        re.compile(r"(?:curl|wget)\b.*\$(?:API_KEY|TOKEN|SECRET|PASSWORD|ACCESS_KEY|PRIVATE_KEY)", re.IGNORECASE),
+        re.compile(
+            r"(?:curl|wget)\b.*\$(?:API_KEY|TOKEN|SECRET|PASSWORD|ACCESS_KEY|PRIVATE_KEY)",
+            re.IGNORECASE,
+        ),
         "Possible credential exfiltration: network request with environment variable",
     ),
     (
@@ -14,7 +17,9 @@ _DANGEROUS_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         "Possible credential exfiltration: reading sensitive credential directory",
     ),
     (
-        re.compile(r"base64\b.*\$(?:API_KEY|TOKEN|SECRET|PASSWORD|ACCESS_KEY|PRIVATE_KEY)", re.IGNORECASE),
+        re.compile(
+            r"base64\b.*\$(?:API_KEY|TOKEN|SECRET|PASSWORD|ACCESS_KEY|PRIVATE_KEY)", re.IGNORECASE
+        ),
         "Possible credential exfiltration: base64 encoding of environment variable",
     ),
     (

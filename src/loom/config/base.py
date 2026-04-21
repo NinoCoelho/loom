@@ -39,6 +39,7 @@ class ConfigStore:
 
     def save(self, config: LoomConfig) -> None:
         from loom.store.atomic import atomic_write
+
         atomic_write(self._path, config.model_dump_json(indent=2))
 
     def update(self, **kwargs: object) -> LoomConfig:

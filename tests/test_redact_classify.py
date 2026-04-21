@@ -31,9 +31,14 @@ class TestClassifier:
         assert classify_message("hi") == MessageCategory.TRIVIAL
 
     def test_coding(self):
-        msg = "Can you help me write a Python function that handles async/await and uses the def keyword to define a class"
+        msg = (
+            "Can you help me write a Python function that handles "
+            "async/await and uses the def keyword to define a class"
+        )
         assert classify_message(msg) == MessageCategory.CODING
 
     def test_balanced(self):
-        msg = "This is a balanced message that doesn't fit any specific category and is long enough"
+        msg = (
+            "This is a balanced message that doesn't fit any specific category and is long enough"
+        )
         assert classify_message(msg) == MessageCategory.BALANCED

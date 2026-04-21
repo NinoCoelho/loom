@@ -4,9 +4,6 @@ let Nexus (and other embedders) fully drive the loop without forking."""
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any
-
-import pytest
 
 from loom.errors import LLMTransportError
 from loom.llm.base import LLMProvider
@@ -53,9 +50,7 @@ class _ScriptedProvider(LLMProvider):
             model=model or "",
         )
 
-    async def chat_stream(
-        self, messages, *, tools=None, model=None
-    ) -> AsyncIterator[StreamEvent]:
+    async def chat_stream(self, messages, *, tools=None, model=None) -> AsyncIterator[StreamEvent]:
         self.last_model = model
         events = self._turns[self._idx]
         self._idx += 1
@@ -73,9 +68,7 @@ class _RaisingStreamProvider(LLMProvider):
     async def chat(self, messages, *, tools=None, model=None) -> ChatResponse:
         raise NotImplementedError
 
-    async def chat_stream(
-        self, messages, *, tools=None, model=None
-    ) -> AsyncIterator[StreamEvent]:
+    async def chat_stream(self, messages, *, tools=None, model=None) -> AsyncIterator[StreamEvent]:
         for i in range(self._n):
             yield ContentDeltaEvent(delta=f"t{i}")
         raise LLMTransportError("upstream boom", status_code=self._status)
@@ -147,9 +140,7 @@ async def test_run_turn_per_call_model_id_overrides_config():
         tool_registry=ToolRegistry(),
         config=AgentConfig(model="cfg-model", max_iterations=1),
     )
-    await agent.run_turn(
-        [ChatMessage(role=Role.USER, content="go")], model_id="explicit"
-    )
+    await agent.run_turn([ChatMessage(role=Role.USER, content="go")], model_id="explicit")
     assert provider.last_model == "explicit"
 
 
@@ -323,9 +314,7 @@ class _CapturingProvider(_ScriptedProvider):
         super().__init__(turns)
         self.calls: list[list[ChatMessage]] = []
 
-    async def chat_stream(
-        self, messages, *, tools=None, model=None
-    ) -> AsyncIterator[StreamEvent]:
+    async def chat_stream(self, messages, *, tools=None, model=None) -> AsyncIterator[StreamEvent]:
         self.calls.append(list(messages))
         async for e in super().chat_stream(messages, tools=tools, model=model):
             yield e
@@ -382,7 +371,9 @@ async def test_before_llm_call_hook_async():
 
     async def async_hook(msgs: list[ChatMessage]) -> list[ChatMessage]:
         return [
-            ChatMessage(role=m.role, content="ASYNC_REWRITTEN" if m.role == Role.SYSTEM else m.content)
+            ChatMessage(
+                role=m.role, content="ASYNC_REWRITTEN" if m.role == Role.SYSTEM else m.content
+            )
             for m in msgs
         ]
 
@@ -404,10 +395,12 @@ async def test_before_llm_call_hook_called_each_iteration():
     tools = ToolRegistry()
     tools.register(_NoopTool())
 
-    provider = _CapturingProvider([
-        _tool_turn("tc1", "noop", "{}"),
-        _final_turn("done"),
-    ])
+    provider = _CapturingProvider(
+        [
+            _tool_turn("tc1", "noop", "{}"),
+            _final_turn("done"),
+        ]
+    )
 
     call_count = 0
 

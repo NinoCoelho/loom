@@ -1,6 +1,4 @@
 import sqlite3
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -15,7 +13,9 @@ def db_path(tmp_path):
 
 @pytest.fixture
 def store(db_path):
-    return SessionStore(db_path)
+    session_store = SessionStore(db_path)
+    yield session_store
+    session_store.close()
 
 
 def test_get_or_create_with_context(store):
@@ -70,7 +70,7 @@ def test_reset_clears_history_not_identity(store):
 
 
 def test_context_column_migration(tmp_path):
-    """Open store against a pre-existing DB lacking the context column; must succeed and return context=None."""
+    """Open store against a legacy DB and verify missing context is migrated."""
     db_file = tmp_path / "legacy.sqlite"
 
     # Create a DB without the context column
@@ -108,12 +108,15 @@ def test_context_column_migration(tmp_path):
 
     # Opening the store must migrate without error
     store = SessionStore(db_file)
-    result = store.get_or_create("legacy-sid")
-    assert result["context"] is None
+    try:
+        result = store.get_or_create("legacy-sid")
+        assert result["context"] is None
 
-    # Can also create new sessions with context
-    new = store.get_or_create("new-sid", context="injected context")
-    assert new["context"] == "injected context"
+        # Can also create new sessions with context
+        new = store.get_or_create("new-sid", context="injected context")
+        assert new["context"] == "injected context"
+    finally:
+        store.close()
 
 
 def test_list_sessions_includes_context(store):

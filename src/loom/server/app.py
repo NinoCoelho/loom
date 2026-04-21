@@ -3,28 +3,25 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from loom.loop import Agent, AgentConfig
-from loom.llm.base import LLMProvider
-from loom.llm.registry import ProviderRegistry
-from loom.skills.registry import SkillRegistry
-from loom.store.session import SessionStore
-from loom.tools.registry import ToolRegistry
-from loom.types import ChatMessage, Role
+from loom.loop import Agent
 from loom.server.schemas import (
-    ChatRequest,
     ChatReply,
+    ChatRequest,
     HeartbeatCreate,
     HeartbeatInfo,
     SessionInfo,
     SkillInfo,
 )
+from loom.skills.registry import SkillRegistry
+from loom.store.session import SessionStore
+from loom.tools.registry import ToolRegistry
+from loom.types import ChatMessage, Role
 
 
 def create_app(
@@ -33,9 +30,9 @@ def create_app(
     skills: SkillRegistry | None = None,
     tool_registry: ToolRegistry | None = None,
     extra_routes: Any = None,
-    heartbeat_manager: Any = None,   # HeartbeatManager | None
+    heartbeat_manager: Any = None,  # HeartbeatManager | None
     heartbeat_scheduler: Any = None,  # HeartbeatScheduler | None
-    heartbeat_store: Any = None,      # HeartbeatStore | None
+    heartbeat_store: Any = None,  # HeartbeatStore | None
 ) -> FastAPI:
     app = FastAPI(title="Loom Agent", version="0.2.0")
     app.add_middleware(
@@ -127,9 +124,13 @@ def create_app(
         return {"deleted": deleted}
 
     if skills:
+
         @app.get("/skills", response_model=list[SkillInfo])
         async def list_skills():
-            return [SkillInfo(name=s.name, description=s.description, trust=s.trust) for s in skills.list()]
+            return [
+                SkillInfo(name=s.name, description=s.description, trust=s.trust)
+                for s in skills.list()
+            ]
 
     if heartbeat_manager and heartbeat_store:
         _register_heartbeat_routes(app, heartbeat_manager, heartbeat_scheduler, heartbeat_store)
@@ -152,28 +153,32 @@ def _register_heartbeat_routes(
         result = []
         for record in registry.list():
             run = runs.get(record.id)
-            result.append(HeartbeatInfo(
-                id=record.id,
-                name=record.name,
-                description=record.description,
-                schedule=record.schedule,
-                enabled=record.enabled,
-                last_check=run.last_check.isoformat() if run and run.last_check else None,
-                last_fired=run.last_fired.isoformat() if run and run.last_fired else None,
-                last_error=run.last_error if run else None,
-            ))
+            result.append(
+                HeartbeatInfo(
+                    id=record.id,
+                    name=record.name,
+                    description=record.description,
+                    schedule=record.schedule,
+                    enabled=record.enabled,
+                    last_check=run.last_check.isoformat() if run and run.last_check else None,
+                    last_fired=run.last_fired.isoformat() if run and run.last_fired else None,
+                    last_error=run.last_error if run else None,
+                )
+            )
         return result
 
     @app.post("/heartbeats", response_model=dict)
     async def create_heartbeat(body: HeartbeatCreate):
-        result = manager.invoke({
-            "action": "create",
-            "name": body.name,
-            "description": body.description,
-            "schedule": body.schedule,
-            "instructions": body.instructions,
-            "driver_code": body.driver_code,
-        })
+        result = manager.invoke(
+            {
+                "action": "create",
+                "name": body.name,
+                "description": body.description,
+                "schedule": body.schedule,
+                "instructions": body.instructions,
+                "driver_code": body.driver_code,
+            }
+        )
         if result.startswith("error:"):
             raise HTTPException(status_code=400, detail=result)
         return {"result": result}
@@ -200,6 +205,7 @@ def _register_heartbeat_routes(
         return {"result": result}
 
     if scheduler:
+
         @app.post("/heartbeats/{heartbeat_id}/trigger", response_model=dict)
         async def trigger_heartbeat(heartbeat_id: str):
             try:

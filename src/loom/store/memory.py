@@ -21,14 +21,13 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 import yaml
 
 from loom.store.atomic import atomic_write
-
 
 # ── Embedding provider protocol (optional) ──────────────────────────────
 
@@ -83,7 +82,7 @@ class MemoryEntry:
         self.category = category
         self.tags = tags or []
         self.content = content
-        self.created = created or datetime.utcnow().isoformat()
+        self.created = created or _utc_now_iso()
         self.updated = updated or self.created
         self.path = path
         self.pinned = pinned
@@ -148,6 +147,21 @@ _W_RECENCY = 0.15
 _RECENCY_TAU_DAYS = 14.0
 
 
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _utc_now_iso() -> str:
+    return _utc_now().isoformat()
+
+
+def _parse_iso_utc(ts: str) -> datetime:
+    when = datetime.fromisoformat(ts)
+    if when.tzinfo is None:
+        return when.replace(tzinfo=UTC)
+    return when.astimezone(UTC)
+
+
 class MemoryStore:
     def __init__(
         self,
@@ -161,6 +175,7 @@ class MemoryStore:
         self._index_path = index_db or memory_dir / "_index.sqlite"
         self._index_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(self._index_path), check_same_thread=False)
+        self._closed = False
         self._db.execute("PRAGMA journal_mode=WAL")
         self._has_fts5 = self._init_fts5()
         self._db.execute("""
@@ -175,6 +190,24 @@ class MemoryStore:
         self._db.commit()
         self._migrate_salience_columns()
         self._embedder = embedding_provider
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._db.close()
+        self._closed = True
+
+    def __enter__(self) -> MemoryStore:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     # ── schema ──────────────────────────────────────────────────────
 
@@ -202,14 +235,11 @@ class MemoryStore:
     def _migrate_salience_columns(self) -> None:
         """Idempotently add salience columns to pre-existing DBs."""
         existing = {
-            row[1]
-            for row in self._db.execute("PRAGMA table_info(memory_meta)").fetchall()
+            row[1] for row in self._db.execute("PRAGMA table_info(memory_meta)").fetchall()
         }
         for name, spec in _SALIENCE_COLUMNS.items():
             if name not in existing:
-                self._db.execute(
-                    f"ALTER TABLE memory_meta ADD COLUMN {name} {spec}"
-                )
+                self._db.execute(f"ALTER TABLE memory_meta ADD COLUMN {name} {spec}")
         self._db.commit()
 
     # ── paths / IO ──────────────────────────────────────────────────
@@ -230,7 +260,7 @@ class MemoryStore:
         importance: int = 1,
     ) -> None:
         path = self._key_path(key)
-        now = datetime.now().isoformat()
+        now = _utc_now_iso()
         fm: dict[str, Any] = {
             "category": category,
             "tags": tags,
@@ -315,7 +345,7 @@ class MemoryStore:
                     fm = yaml.safe_load(raw[3:end]) or {}
                 except Exception:
                     pass
-                body = raw[end + 3:].strip()
+                body = raw[end + 3 :].strip()
 
         return MemoryEntry(
             key=key,
@@ -343,9 +373,7 @@ class MemoryStore:
         pinned: bool = False,
         importance: int = 1,
     ) -> None:
-        self._write_file(
-            key, content, category, tags or [], pinned=pinned, importance=importance
-        )
+        self._write_file(key, content, category, tags or [], pinned=pinned, importance=importance)
 
     async def read(self, key: str) -> MemoryEntry | None:
         return self._read_file(key)
@@ -368,7 +396,8 @@ class MemoryStore:
     async def search(self, query: str, limit: int = 10) -> list[SearchHit]:
         if self._has_fts5:
             rows = self._db.execute(
-                "SELECT key, category, snippet(memory_fts, 2, '<<', '>>', '...', 30) as snippet, rank "
+                "SELECT key, category, "
+                "snippet(memory_fts, 2, '<<', '>>', '...', 30) as snippet, rank "
                 "FROM memory_fts WHERE memory_fts MATCH ? ORDER BY rank LIMIT ?",
                 (query, limit),
             ).fetchall()
@@ -380,10 +409,7 @@ class MemoryStore:
             "SELECT key, category, content FROM memory_content WHERE content LIKE ? LIMIT ?",
             (f"%{query}%", limit),
         ).fetchall()
-        return [
-            SearchHit(key=r[0], category=r[1], snippet=r[2][:100], score=0.0)
-            for r in rows
-        ]
+        return [SearchHit(key=r[0], category=r[1], snippet=r[2][:100], score=0.0) for r in rows]
 
     async def list_entries(
         self, category: str | None = None, limit: int = 50
@@ -401,8 +427,7 @@ class MemoryStore:
             ).fetchall()
         else:
             rows = self._db.execute(
-                f"SELECT {cols} FROM memory_meta "
-                "ORDER BY pinned DESC, updated DESC LIMIT ?",
+                f"SELECT {cols} FROM memory_meta ORDER BY pinned DESC, updated DESC LIMIT ?",
                 (limit,),
             ).fetchall()
         entries: list[MemoryEntry] = []
@@ -462,7 +487,7 @@ class MemoryStore:
 
     def touch(self, key: str) -> None:
         """Mark an entry as just-recalled — bumps access_count + timestamp."""
-        now = datetime.utcnow().isoformat()
+        now = _utc_now_iso()
         self._db.execute(
             "UPDATE memory_meta SET access_count = COALESCE(access_count,0)+1, "
             "last_recalled_at = ? WHERE key = ?",
@@ -496,7 +521,7 @@ class MemoryStore:
                     fm = yaml.safe_load(raw[3:end]) or {}
                 except Exception:
                     pass
-                body = raw[end + 3:].lstrip("\n")
+                body = raw[end + 3 :].lstrip("\n")
         fm.update(updates)
         fm_str = yaml.dump(fm, default_flow_style=False).strip()
         atomic_write(path, f"---\n{fm_str}\n---\n{body}")
@@ -543,9 +568,7 @@ class MemoryStore:
                 self.touch(h.key)
         return top
 
-    async def _bm25_candidates(
-        self, query: str, pool: int
-    ) -> list[dict[str, Any]]:
+    async def _bm25_candidates(self, query: str, pool: int) -> list[dict[str, Any]]:
         if self._has_fts5:
             rows = self._db.execute(
                 "SELECT key, category, "
@@ -560,10 +583,7 @@ class MemoryStore:
                 "FROM memory_content WHERE content LIKE ? LIMIT ?",
                 (f"%{query}%", pool),
             ).fetchall()
-        return [
-            {"key": r[0], "category": r[1], "snippet": r[2], "bm25": r[3]}
-            for r in rows
-        ]
+        return [{"key": r[0], "category": r[1], "snippet": r[2], "bm25": r[3]} for r in rows]
 
     def _rerank(self, candidates: list[dict[str, Any]]) -> list[RecallHit]:
         # FTS5 rank is negative, lower=better. Turn it into a positive
@@ -573,7 +593,7 @@ class MemoryStore:
         best = max(ranks) if ranks else 0.0
         span = (best - worst) or 1.0
 
-        now = datetime.utcnow()
+        now = _utc_now()
         hits: list[RecallHit] = []
         for cand in candidates:
             entry = self._read_file(cand["key"])
@@ -585,11 +605,7 @@ class MemoryStore:
 
             salience = self._salience(entry)
             recency = self._recency(entry, now)
-            score = (
-                _W_BM25 * bm25_norm
-                + _W_SALIENCE * salience
-                + _W_RECENCY * recency
-            )
+            score = _W_BM25 * bm25_norm + _W_SALIENCE * salience + _W_RECENCY * recency
             hits.append(
                 RecallHit(
                     key=entry.key,
@@ -620,7 +636,7 @@ class MemoryStore:
         if not ts:
             return 0.0
         try:
-            when = datetime.fromisoformat(ts)
+            when = _parse_iso_utc(ts)
         except ValueError:
             return 0.0
         age_days = max(0.0, (now - when).total_seconds() / 86400.0)

@@ -8,7 +8,6 @@ from typing import Any
 
 from loom.heartbeat.types import HeartbeatRunRecord
 
-
 _TS_FMT = "%Y-%m-%dT%H:%M:%S.%f"
 
 
@@ -30,6 +29,7 @@ class HeartbeatStore:
     def __init__(self, db_path: Path) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(db_path), check_same_thread=False)
+        self._closed = False
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("""
             CREATE TABLE IF NOT EXISTS heartbeat_state (
@@ -63,9 +63,7 @@ class HeartbeatStore:
             last_error=row[3],
         )
 
-    def get_state(
-        self, heartbeat_id: str, instance_id: str = "default"
-    ) -> dict[str, Any]:
+    def get_state(self, heartbeat_id: str, instance_id: str = "default") -> dict[str, Any]:
         run = self.get_run(heartbeat_id, instance_id)
         return run.state if run else {}
 
@@ -77,12 +75,8 @@ class HeartbeatStore:
     ) -> None:
         self._upsert(heartbeat_id, instance_id, state=json.dumps(state))
 
-    def touch_check(
-        self, heartbeat_id: str, instance_id: str = "default"
-    ) -> None:
-        self._upsert(
-            heartbeat_id, instance_id, last_check=_to_ts(datetime.now(UTC))
-        )
+    def touch_check(self, heartbeat_id: str, instance_id: str = "default") -> None:
+        self._upsert(heartbeat_id, instance_id, last_check=_to_ts(datetime.now(UTC)))
 
     def touch_fired(
         self,
@@ -116,6 +110,24 @@ class HeartbeatStore:
             (heartbeat_id, instance_id),
         )
         self._db.commit()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._db.close()
+        self._closed = True
+
+    def __enter__(self) -> HeartbeatStore:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def delete_all(self, heartbeat_id: str) -> None:
         self._db.execute(

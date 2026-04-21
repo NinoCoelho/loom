@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from loom.heartbeat.cron import Schedule, is_due, parse_schedule
+from loom.heartbeat.cron import is_due, parse_schedule
 
 
 class TestParseSchedule:

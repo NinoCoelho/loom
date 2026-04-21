@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
 
 import frontmatter
 
@@ -152,9 +151,7 @@ class HeartbeatManager:
             return "no heartbeats registered"
         lines: list[str] = []
         for r in records:
-            runs = [
-                run for run in self._store.list_runs() if run.heartbeat_id == r.id
-            ]
+            runs = [run for run in self._store.list_runs() if run.heartbeat_id == r.id]
             last_check = runs[0].last_check.isoformat() if runs and runs[0].last_check else "never"
             last_fired = runs[0].last_fired.isoformat() if runs and runs[0].last_fired else "never"
             status = "enabled" if r.enabled else "disabled"

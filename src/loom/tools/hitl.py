@@ -4,8 +4,8 @@ import asyncio
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from loom.types import ToolSpec
 from loom.tools.base import ToolHandler, ToolResult
+from loom.types import ToolSpec
 
 
 class AskUserTool(ToolHandler):
@@ -49,9 +49,7 @@ class AskUserTool(ToolHandler):
 
         valid_kinds = {"confirm", "choice", "text"}
         if kind not in valid_kinds:
-            return ToolResult(
-                text=f"Invalid kind: {kind}. Must be one of {valid_kinds}"
-            )
+            return ToolResult(text=f"Invalid kind: {kind}. Must be one of {valid_kinds}")
 
         response = await self._handler(kind, message, choices)
         return ToolResult(text=response)
@@ -98,9 +96,7 @@ class TerminalTool(ToolHandler):
 
     async def invoke(self, args: dict) -> ToolResult:
         command = args.get("command", "")
-        timeout = min(
-            args.get("timeout", self._default_timeout), self._max_timeout
-        )
+        timeout = min(args.get("timeout", self._default_timeout), self._max_timeout)
         require_approval = args.get("require_approval", True)
 
         if require_approval:
@@ -120,10 +116,8 @@ class TerminalTool(ToolHandler):
             output = stdout.decode(errors="replace") if stdout else ""
             if len(output) > self._max_output:
                 output = output[: self._max_output] + "\n... [truncated]"
-            return ToolResult(
-                text=output, metadata={"exit_code": proc.returncode}
-            )
-        except asyncio.TimeoutError:
+            return ToolResult(text=output, metadata={"exit_code": proc.returncode})
+        except TimeoutError:
             return ToolResult(text=f"Command timed out after {timeout}s")
         except Exception as e:
             return ToolResult(text=f"Command error: {e}")

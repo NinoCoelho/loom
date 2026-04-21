@@ -19,10 +19,10 @@ web SSE integration without every adopter re-implementing it:
 
 from loom.hitl.broker import (
     CURRENT_SESSION_ID,
+    TIMEOUT_SENTINEL,
     HitlBroker,
     HitlEvent,
     HitlRequest,
-    TIMEOUT_SENTINEL,
 )
 from loom.hitl.tool import BrokerAskUserTool
 

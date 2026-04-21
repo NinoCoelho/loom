@@ -1,5 +1,4 @@
 from loom.errors import (
-    ClassifiedError,
     FailoverReason,
     LLMError,
     LLMTransportError,

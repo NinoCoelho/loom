@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from loom.skills.registry import SkillRegistry
 
 
@@ -29,6 +27,7 @@ def test_additional_dirs(tmp_dir):
 
 def test_register_unregister(tmp_dir):
     from loom.skills.types import Skill
+
     reg = SkillRegistry(tmp_dir / "skills")
     skill = Skill(name="test", description="A test", body="body", source_dir=str(tmp_dir))
     reg.register(skill)
@@ -39,6 +38,7 @@ def test_register_unregister(tmp_dir):
 
 def test_reload(tmp_dir):
     from loom.skills.types import Skill
+
     reg = SkillRegistry(tmp_dir / "skills")
     reg.register(Skill(name="x", description="X", body="x", source_dir=str(tmp_dir)))
     assert reg.get("x") is not None

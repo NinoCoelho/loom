@@ -10,4 +10,5 @@ class SessionEvent:
 
     def to_sse(self) -> str:
         import json
+
         return f"event: {self.kind}\ndata: {json.dumps(self.data)}\n\n"

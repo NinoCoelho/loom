@@ -4,7 +4,6 @@ from pathlib import Path
 
 from loom.store.atomic import atomic_write
 
-
 _DEFAULT_SOUL = """\
 # Soul
 
