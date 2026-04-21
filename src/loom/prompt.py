@@ -77,33 +77,39 @@ def load_identity_sections(
 
     soul = home.read_soul()
     if soul:
-        sections.append(PromptSection(
-            name="soul",
-            content=soul,
-            priority=10,
-            source=home.soul_path,
-            writable=soul_w,
-        ))
+        sections.append(
+            PromptSection(
+                name="soul",
+                content=soul,
+                priority=10,
+                source=home.soul_path,
+                writable=soul_w,
+            )
+        )
 
     identity = home.read_identity()
     if identity:
-        sections.append(PromptSection(
-            name="identity",
-            content=identity,
-            priority=20,
-            source=home.identity_path,
-            writable=identity_w,
-        ))
+        sections.append(
+            PromptSection(
+                name="identity",
+                content=identity,
+                priority=20,
+                source=home.identity_path,
+                writable=identity_w,
+            )
+        )
 
     user = home.read_user()
     if user:
-        sections.append(PromptSection(
-            name="user",
-            content=user,
-            priority=30,
-            source=home.user_path,
-            writable=user_w,
-        ))
+        sections.append(
+            PromptSection(
+                name="user",
+                content=user,
+                priority=30,
+                source=home.user_path,
+                writable=user_w,
+            )
+        )
 
     return sections
 

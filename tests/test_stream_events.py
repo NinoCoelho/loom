@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-import pytest
-
 from loom.llm.base import LLMProvider
 from loom.loop import Agent, AgentConfig
 from loom.tools.base import ToolHandler, ToolResult
@@ -20,7 +18,6 @@ from loom.types import (
     StopEvent,
     StopReason,
     StreamEvent,
-    ToolCall,
     ToolCallDeltaEvent,
     ToolExecResultEvent,
     ToolExecStartEvent,
@@ -28,7 +25,6 @@ from loom.types import (
     Usage,
     UsageEvent,
 )
-
 
 # ── Event type shape ────────────────────────────────────────────────────
 
@@ -76,7 +72,7 @@ class _EchoTool(ToolHandler):
         )
 
     async def invoke(self, arguments: dict) -> ToolResult:
-        return ToolResult(text=f"echoed:{arguments.get('x','')}")
+        return ToolResult(text=f"echoed:{arguments.get('x', '')}")
 
 
 class _BoomTool(ToolHandler):
@@ -102,9 +98,7 @@ class _ScriptedProvider(LLMProvider):
     async def chat(self, messages, *, tools=None, model=None) -> ChatResponse:
         raise NotImplementedError
 
-    async def chat_stream(
-        self, messages, *, tools=None, model=None
-    ) -> AsyncIterator[StreamEvent]:
+    async def chat_stream(self, messages, *, tools=None, model=None) -> AsyncIterator[StreamEvent]:
         events = self._turns[self._idx]
         self._idx += 1
         for e in events:
@@ -131,16 +125,16 @@ class TestStreamWiring:
     async def test_tool_exec_events_emitted(self):
         tools = ToolRegistry()
         tools.register(_EchoTool())
-        provider = _ScriptedProvider([
-            _tool_turn("tc1", "echo", '{"x":"hi"}'),
-            _final_turn("done"),
-        ])
+        provider = _ScriptedProvider(
+            [
+                _tool_turn("tc1", "echo", '{"x":"hi"}'),
+                _final_turn("done"),
+            ]
+        )
         agent = Agent(provider=provider, tool_registry=tools, config=AgentConfig())
 
         events: list[StreamEvent] = []
-        async for ev in agent.run_turn_stream(
-            [ChatMessage(role=Role.USER, content="go")]
-        ):
+        async for ev in agent.run_turn_stream([ChatMessage(role=Role.USER, content="go")]):
             events.append(ev)
 
         kinds = [e.type for e in events]
@@ -160,17 +154,17 @@ class TestStreamWiring:
     async def test_tool_exception_marks_is_error(self):
         tools = ToolRegistry()
         tools.register(_BoomTool())
-        provider = _ScriptedProvider([
-            _tool_turn("tc1", "boom", "{}"),
-            _final_turn("recovered"),
-        ])
+        provider = _ScriptedProvider(
+            [
+                _tool_turn("tc1", "boom", "{}"),
+                _final_turn("recovered"),
+            ]
+        )
         agent = Agent(provider=provider, tool_registry=tools, config=AgentConfig())
 
         results = [
             e
-            async for e in agent.run_turn_stream(
-                [ChatMessage(role=Role.USER, content="go")]
-            )
+            async for e in agent.run_turn_stream([ChatMessage(role=Role.USER, content="go")])
             if isinstance(e, ToolExecResultEvent)
         ]
         assert len(results) == 1
@@ -181,18 +175,13 @@ class TestStreamWiring:
         tools = ToolRegistry()
         tools.register(_EchoTool())
         # Every turn returns a tool call — never terminates.
-        provider = _ScriptedProvider([
-            _tool_turn(f"tc{i}", "echo", '{"x":"loop"}') for i in range(5)
-        ])
-        agent = Agent(
-            provider=provider, tool_registry=tools, config=AgentConfig(max_iterations=3)
+        provider = _ScriptedProvider(
+            [_tool_turn(f"tc{i}", "echo", '{"x":"loop"}') for i in range(5)]
         )
+        agent = Agent(provider=provider, tool_registry=tools, config=AgentConfig(max_iterations=3))
 
         events = [
-            e
-            async for e in agent.run_turn_stream(
-                [ChatMessage(role=Role.USER, content="go")]
-            )
+            e async for e in agent.run_turn_stream([ChatMessage(role=Role.USER, content="go")])
         ]
         limit_events = [e for e in events if isinstance(e, LimitReachedEvent)]
         assert len(limit_events) == 1

@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import json
-from typing import Any
-
-from loom.types import ChatMessage, Role, ToolSpec
 from loom.tools.base import ToolHandler, ToolResult
+from loom.types import ChatMessage, Role, ToolSpec
 
 
 class DelegateTool(ToolHandler):
@@ -15,7 +12,10 @@ class DelegateTool(ToolHandler):
     def tool(self) -> ToolSpec:
         return ToolSpec(
             name="delegate",
-            description="Delegate a task to another agent by name. The target agent will process the message and return a result.",
+            description=(
+                "Delegate a task to another agent by name. "
+                "The target agent will process the message and return a result."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
@@ -49,7 +49,10 @@ class DelegateTool(ToolHandler):
         available = self._runtime.list_agents()
         if target_name not in available:
             return ToolResult(
-                text=f"error: agent '{target_name}' not found. Available agents: {', '.join(available)}"
+                text=(
+                    f"error: agent '{target_name}' not found. "
+                    f"Available agents: {', '.join(available)}"
+                )
             )
 
         agent = self._runtime.get_agent(target_name)

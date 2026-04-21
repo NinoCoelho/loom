@@ -2,7 +2,6 @@ import pytest
 
 from loom.loop import Agent, AgentConfig, AgentTurn
 from loom.tools.registry import ToolRegistry
-from loom.types import ChatMessage, Role
 
 
 def test_agent_turn():
@@ -44,17 +43,21 @@ def test_agent_build_prompt_without_home():
 
 def test_agent_build_prompt_with_home(agent_home, perms_full):
     from loom.store.memory import MemoryStore
+
     mem = MemoryStore(agent_home.memory_dir, agent_home.memory_index_db)
-    agent = Agent(
-        tool_registry=ToolRegistry(),
-        agent_home=agent_home,
-        permissions=perms_full,
-        memory_store=mem,
-        config=AgentConfig(max_iterations=1),
-    )
-    prompt = agent._build_system_prompt()
-    assert "Soul" in prompt
-    assert "Identity" in prompt
+    try:
+        agent = Agent(
+            tool_registry=ToolRegistry(),
+            agent_home=agent_home,
+            permissions=perms_full,
+            memory_store=mem,
+            config=AgentConfig(max_iterations=1),
+        )
+        prompt = agent._build_system_prompt()
+        assert "Soul" in prompt
+        assert "Identity" in prompt
+    finally:
+        mem.close()
 
 
 def test_agent_build_prompt_with_context(agent_home, perms_full):

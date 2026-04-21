@@ -58,9 +58,7 @@ class VaultToolHandler(ToolHandler):
             query = args.get("query", "")
             limit = args.get("limit", 10)
             results = await self._provider.search(query, limit)
-            return ToolResult(
-                text=json.dumps(results), metadata={"count": len(results)}
-            )
+            return ToolResult(text=json.dumps(results), metadata={"count": len(results)})
 
         if action == "read":
             path = args.get("path", "")
@@ -77,9 +75,7 @@ class VaultToolHandler(ToolHandler):
         if action == "list":
             prefix = args.get("prefix", "")
             entries = await self._provider.list(prefix)
-            return ToolResult(
-                text=json.dumps(entries), metadata={"count": len(entries)}
-            )
+            return ToolResult(text=json.dumps(entries), metadata={"count": len(entries)})
 
         if action == "delete":
             path = args.get("path", "")

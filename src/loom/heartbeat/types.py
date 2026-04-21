@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
 _ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 
@@ -28,18 +27,17 @@ class HeartbeatDriver(ABC):
     @abstractmethod
     async def check(
         self, state: dict[str, Any]
-    ) -> tuple[list[HeartbeatEvent], dict[str, Any]]:
-        ...
+    ) -> tuple[list[HeartbeatEvent], dict[str, Any]]: ...
 
 
 @dataclass
 class HeartbeatRecord:
-    id: str                  # directory name / primary key
+    id: str  # directory name / primary key
     name: str
     description: str
-    schedule: str            # raw schedule string (cron or natural language)
+    schedule: str  # raw schedule string (cron or natural language)
     enabled: bool
-    instructions: str        # HEARTBEAT.md body — agent system prompt
+    instructions: str  # HEARTBEAT.md body — agent system prompt
     source_dir: Path
     driver: HeartbeatDriver
 

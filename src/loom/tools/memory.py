@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from loom.store.memory import MemoryStore
-from loom.types import ToolSpec
 from loom.tools.base import ToolHandler, ToolResult
+from loom.types import ToolSpec
 
 
 class MemoryToolHandler(ToolHandler):
@@ -16,7 +15,10 @@ class MemoryToolHandler(ToolHandler):
     def tool(self) -> ToolSpec:
         return ToolSpec(
             name="memory",
-            description="Read, write, search, list, or delete memory entries. Memory persists across sessions.",
+            description=(
+                "Read, write, search, list, or delete memory entries. "
+                "Memory persists across sessions."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
@@ -77,7 +79,9 @@ class MemoryToolHandler(ToolHandler):
             entry = await self._store.read(key)
             if not entry:
                 return ToolResult(text=f"Memory not found: {key}")
-            meta = json.dumps({"category": entry.category, "tags": entry.tags, "updated": entry.updated})
+            meta = json.dumps(
+                {"category": entry.category, "tags": entry.tags, "updated": entry.updated}
+            )
             return ToolResult(text=entry.content, metadata={"meta": meta})
 
         if action == "search":

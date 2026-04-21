@@ -58,7 +58,10 @@ MANAGE_TOOL_SPEC = ToolSpec(
             },
             "file_path": {
                 "type": "string",
-                "description": "Relative file path within the skill directory (for write_file/remove_file).",
+                "description": (
+                    "Relative file path within the skill directory "
+                    "(for write_file/remove_file)."
+                ),
             },
             "content": {
                 "type": "string",

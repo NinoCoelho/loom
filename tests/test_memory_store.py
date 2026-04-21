@@ -1,4 +1,4 @@
-import asyncio
+from datetime import datetime
 
 import pytest
 
@@ -7,7 +7,9 @@ from loom.store.memory import MemoryStore
 
 @pytest.fixture
 def store(memory_dir, memory_index):
-    return MemoryStore(memory_dir, memory_index)
+    memory_store = MemoryStore(memory_dir, memory_index)
+    yield memory_store
+    memory_store.close()
 
 
 @pytest.mark.asyncio
@@ -18,6 +20,15 @@ async def test_write_and_read(store):
     assert entry.content == "Hello world"
     assert entry.category == "notes"
     assert "test" in entry.tags
+
+
+@pytest.mark.asyncio
+async def test_write_persists_utc_timestamps(store):
+    await store.write("tz-key", "Hello UTC", category="notes")
+    entry = await store.read("tz-key")
+    assert entry is not None
+    assert datetime.fromisoformat(entry.created).tzinfo is not None
+    assert datetime.fromisoformat(entry.updated).tzinfo is not None
 
 
 @pytest.mark.asyncio
@@ -149,6 +160,7 @@ async def test_importance_clamped(store):
 async def test_salience_columns_migrate(tmp_path):
     """Pre-existing DB without salience columns should be migrated on open."""
     import sqlite3 as _sq
+
     mem_dir = tmp_path / "mem"
     mem_dir.mkdir()
     db = mem_dir / "_index.sqlite"
@@ -161,17 +173,27 @@ async def test_salience_columns_migrate(tmp_path):
     conn.close()
     # Opening the store should add the missing columns without error.
     store = MemoryStore(mem_dir, db)
-    await store.write("k", "hello", category="notes")
-    entry = await store.read("k")
-    assert entry.pinned is False
-    assert entry.importance == 1
+    try:
+        await store.write("k", "hello", category="notes")
+        entry = await store.read("k")
+        assert entry.pinned is False
+        assert entry.importance == 1
+    finally:
+        store.close()
 
 
 @pytest.mark.asyncio
 async def test_persistence(memory_dir, memory_index):
     store1 = MemoryStore(memory_dir, memory_index)
-    await store1.write("persist", "survives restart", category="notes")
+    try:
+        await store1.write("persist", "survives restart", category="notes")
+    finally:
+        store1.close()
+
     store2 = MemoryStore(memory_dir, memory_index)
-    entry = await store2.read("persist")
-    assert entry is not None
-    assert "survives restart" in entry.content
+    try:
+        entry = await store2.read("persist")
+        assert entry is not None
+        assert "survives restart" in entry.content
+    finally:
+        store2.close()

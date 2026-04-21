@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import httpx
 
-from loom.types import ToolSpec
 from loom.tools.base import ToolHandler, ToolResult
+from loom.types import ToolSpec
 
 
 class HttpCallTool(ToolHandler):

@@ -1,11 +1,11 @@
 from loom.prompt import (
     PromptBuilder,
     PromptSection,
+    load_context_section,
     load_identity_sections,
     load_memory_preview,
-    load_skills_section,
-    load_context_section,
     load_pending_section,
+    load_skills_section,
 )
 
 

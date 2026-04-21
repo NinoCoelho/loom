@@ -7,8 +7,8 @@ extras, but ``call_agent`` / ``load_or_create_keypair`` will raise
 """
 
 from loom.acp.client import (
-    AcpConfig,
     NOT_CONFIGURED_MESSAGE,
+    AcpConfig,
     call_agent,
 )
 from loom.acp.device import (

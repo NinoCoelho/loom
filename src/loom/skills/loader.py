@@ -24,20 +24,12 @@ def load_skill(skill_dir: Path) -> Skill:
     if not _NAME_RE.match(dir_name):
         raise ValueError(f"invalid skill directory name: {dir_name!r}")
     if name != dir_name:
-        raise ValueError(
-            f"skill name {name!r} does not match directory name {dir_name!r}"
-        )
+        raise ValueError(f"skill name {name!r} does not match directory name {dir_name!r}")
     if not (1 <= len(description) <= 1024):
-        raise ValueError(
-            f"description must be 1-1024 chars, got {len(description)}"
-        )
+        raise ValueError(f"description must be 1-1024 chars, got {len(description)}")
 
     trust = _resolve_trust(skill_dir)
-    metadata = {
-        k: v
-        for k, v in post.metadata.items()
-        if k not in ("name", "description")
-    }
+    metadata = {k: v for k, v in post.metadata.items() if k not in ("name", "description")}
 
     return Skill(
         name=name,

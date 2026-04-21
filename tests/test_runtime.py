@@ -1,13 +1,15 @@
 import pytest
 
-from loom.loop import Agent, AgentConfig
-from loom.runtime import AgentRuntime
+from loom.loop import AgentConfig
 from loom.permissions import AgentPermissions
+from loom.runtime import AgentRuntime
 
 
 @pytest.fixture
 def runtime(tmp_dir):
-    return AgentRuntime(tmp_dir / "loom")
+    agent_runtime = AgentRuntime(tmp_dir / "loom")
+    yield agent_runtime
+    agent_runtime.close()
 
 
 def test_create_agent(runtime):

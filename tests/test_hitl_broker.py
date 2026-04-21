@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from loom.hitl import (
-    BrokerAskUserTool,
     CURRENT_SESSION_ID,
+    TIMEOUT_SENTINEL,
+    BrokerAskUserTool,
     HitlBroker,
     HitlEvent,
-    TIMEOUT_SENTINEL,
 )
-
 
 # ── Broker mechanics ────────────────────────────────────────────────────
 
@@ -73,9 +70,7 @@ class TestHitlBroker:
 
     async def test_publish_hook_forwards_events(self) -> None:
         received: list[tuple[str, HitlEvent]] = []
-        broker = HitlBroker(
-            publish_hook=lambda sid, ev: received.append((sid, ev))
-        )
+        broker = HitlBroker(publish_hook=lambda sid, ev: received.append((sid, ev)))
         task = asyncio.create_task(broker.ask("s1", "ok?", timeout_seconds=5))
         await asyncio.sleep(0)
         assert any(ev.kind == "user_request" for _, ev in received)
@@ -149,9 +144,7 @@ class TestBrokerAskUserTool:
         CURRENT_SESSION_ID.set("s1")
         r1 = await tool.invoke({"prompt": "pick", "kind": "choice"})
         assert r1.is_error is True
-        r2 = await tool.invoke(
-            {"prompt": "pick", "kind": "choice", "choices": [1, 2]}
-        )
+        r2 = await tool.invoke({"prompt": "pick", "kind": "choice", "choices": [1, 2]})
         assert r2.is_error is True
 
     async def test_yolo_getter_applied(self) -> None:

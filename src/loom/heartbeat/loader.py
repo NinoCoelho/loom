@@ -32,9 +32,7 @@ def load_heartbeat(heartbeat_dir: Path) -> HeartbeatRecord:
     validate_heartbeat_id(dir_name)
 
     if name != dir_name:
-        raise ValueError(
-            f"heartbeat name {name!r} does not match directory name {dir_name!r}"
-        )
+        raise ValueError(f"heartbeat name {name!r} does not match directory name {dir_name!r}")
     if not description:
         raise ValueError("description is required in HEARTBEAT.md frontmatter")
     if not schedule:
@@ -69,8 +67,8 @@ def _load_driver(driver_path: Path) -> HeartbeatDriver:
 
     driver_cls = getattr(module, "Driver", None)
     if driver_cls is None:
-        raise AttributeError(f"driver.py must define a class named 'Driver'")
+        raise AttributeError("driver.py must define a class named 'Driver'")
     if not (isinstance(driver_cls, type) and issubclass(driver_cls, HeartbeatDriver)):
-        raise TypeError(f"Driver must subclass HeartbeatDriver")
+        raise TypeError("Driver must subclass HeartbeatDriver")
 
     return driver_cls()

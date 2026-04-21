@@ -35,7 +35,9 @@ class SkillRegistry:
                 continue
 
     def descriptions(self) -> list[tuple[str, str]]:
-        return [(s.name, s.description) for s in sorted(self._index.values(), key=lambda s: s.name)]
+        return [
+            (s.name, s.description) for s in sorted(self._index.values(), key=lambda s: s.name)
+        ]
 
     def get(self, name: str) -> Skill | None:
         return self._index.get(name)

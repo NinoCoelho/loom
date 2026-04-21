@@ -73,9 +73,7 @@ class HeartbeatScheduler:
     # manual trigger
     # ------------------------------------------------------------------
 
-    async def trigger(
-        self, heartbeat_id: str, instance_id: str = "default"
-    ) -> list[AgentTurn]:
+    async def trigger(self, heartbeat_id: str, instance_id: str = "default") -> list[AgentTurn]:
         record = self._registry.get(heartbeat_id)
         if record is None:
             raise KeyError(f"heartbeat {heartbeat_id!r} not found")
@@ -106,7 +104,9 @@ class HeartbeatScheduler:
             try:
                 schedule = parse_schedule(record.schedule)
             except ValueError:
-                logger.warning("heartbeat %r has unparseable schedule %r", record.id, record.schedule)
+                logger.warning(
+                    "heartbeat %r has unparseable schedule %r", record.id, record.schedule
+                )
                 continue
 
             run = self._store.get_run(record.id)
@@ -147,13 +147,13 @@ class HeartbeatScheduler:
             except Exception as exc:
                 logger.error(
                     "agent invocation failed for heartbeat %r event %r: %s",
-                    record.id, event.name, exc,
+                    record.id,
+                    event.name,
+                    exc,
                 )
         return turns
 
-    async def _invoke_agent(
-        self, record: HeartbeatRecord, event: HeartbeatEvent
-    ) -> AgentTurn:
+    async def _invoke_agent(self, record: HeartbeatRecord, event: HeartbeatEvent) -> AgentTurn:
         event_summary = _format_event(record, event)
         messages = [ChatMessage(role=Role.USER, content=event_summary)]
 
@@ -194,6 +194,7 @@ def _format_event(record: HeartbeatRecord, event: HeartbeatEvent) -> str:
 # ---------------------------------------------------------------------------
 # Convenience factory
 # ---------------------------------------------------------------------------
+
 
 def make_run_fn(agent: Any) -> RunFn:
     """Build a RunFn from an existing Agent, using its provider/tools but

@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-from enum import Enum
-from typing import Literal, Union
+from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel
 
 
-class Role(str, Enum):
+class Role(StrEnum):
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
     TOOL = "tool"
 
 
-class StopReason(str, Enum):
+class StopReason(StrEnum):
     STOP = "stop"
     TOOL_USE = "tool_use"
     LENGTH = "length"
@@ -136,7 +136,7 @@ class DoneEvent(BaseModel):
     context: dict = {}
 
 
-StreamEvent = Union[
+StreamEvent = (
     ContentDeltaEvent,
     ToolCallDeltaEvent,
     UsageEvent,
@@ -146,4 +146,4 @@ StreamEvent = Union[
     LimitReachedEvent,
     ErrorEvent,
     DoneEvent,
-]
+)

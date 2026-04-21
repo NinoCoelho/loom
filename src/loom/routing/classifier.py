@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import re
-from enum import Enum
+from enum import StrEnum
 
 
-class MessageCategory(str, Enum):
+class MessageCategory(StrEnum):
     CODING = "coding"
     REASONING = "reasoning"
     TRIVIAL = "trivial"

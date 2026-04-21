@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import base64
+import os
 import tempfile
 from pathlib import Path
 
 import pytest
 
 from loom.acp import (
+    NOT_CONFIGURED_MESSAGE,
     AcpCallTool,
     AcpConfig,
-    DeviceKeypair,
-    NOT_CONFIGURED_MESSAGE,
     call_agent,
     load_or_create_keypair,
     sign_challenge,
 )
-
 
 # ── Device key management ──────────────────────────────────────────────
 
@@ -28,9 +27,13 @@ class TestDeviceKeypair:
         kp = load_or_create_keypair(key_path)
         assert key_path.exists()
         assert len(kp.public_hex) == 64  # 32 bytes hex
-        # File should be 0600.
         mode = oct(key_path.stat().st_mode & 0o777)
-        assert mode == "0o600"
+        if os.name == "nt":
+            # Windows doesn't expose POSIX mode bits the same way; verify
+            # the file exists and is not world-executable.
+            assert mode in {"0o600", "0o666"}
+        else:
+            assert mode == "0o600"
 
     def test_roundtrip_same_key(self, tmp_path: Path) -> None:
         key_path = tmp_path / "device_key"
@@ -98,9 +101,7 @@ class TestAcpConfig:
         assert cfg.sig_encoding == "base64"
         assert cfg.configured
 
-    def test_from_env_missing_is_not_configured(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_from_env_missing_is_not_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("LOOM_ACP_GATEWAY_URL", raising=False)
         monkeypatch.delenv("LOOM_ACP_TOKEN", raising=False)
         cfg = AcpConfig.from_env()

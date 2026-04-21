@@ -3,8 +3,7 @@ import textwrap
 import pytest
 
 from loom.heartbeat.loader import load_heartbeat
-from loom.heartbeat.types import HeartbeatDriver, HeartbeatEvent
-
+from loom.heartbeat.types import HeartbeatDriver
 
 DRIVER_CODE = textwrap.dedent("""\
     from loom.heartbeat.types import HeartbeatDriver, HeartbeatEvent
@@ -25,11 +24,20 @@ DRIVER_NO_EVENTS = textwrap.dedent("""\
 """)
 
 
-def _write_heartbeat(base_dir, name, schedule="every 1 minute", driver_code=DRIVER_CODE, instructions="Do something."):
+def _write_heartbeat(
+    base_dir,
+    name,
+    schedule="every 1 minute",
+    driver_code=DRIVER_CODE,
+    instructions="Do something.",
+):
     hb_dir = base_dir / name
     hb_dir.mkdir(parents=True)
     (hb_dir / "HEARTBEAT.md").write_text(
-        f"---\nname: {name}\ndescription: Test heartbeat\nschedule: \"{schedule}\"\nenabled: true\n---\n{instructions}\n",
+        (
+            f'---\nname: {name}\ndescription: Test heartbeat\n'
+            f'schedule: "{schedule}"\nenabled: true\n---\n{instructions}\n'
+        ),
         encoding="utf-8",
     )
     (hb_dir / "driver.py").write_text(driver_code, encoding="utf-8")

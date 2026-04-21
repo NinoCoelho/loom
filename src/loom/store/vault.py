@@ -20,9 +20,7 @@ class VaultProvider(Protocol):
 
     async def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]: ...
     async def read(self, path: str) -> str: ...
-    async def write(
-        self, path: str, content: str, metadata: dict | None = None
-    ) -> None: ...
+    async def write(self, path: str, content: str, metadata: dict | None = None) -> None: ...
     async def list(self, prefix: str = "") -> list[str]: ...
     async def delete(self, path: str) -> None: ...
 
@@ -35,6 +33,7 @@ class FilesystemVaultProvider:
         self._dir.mkdir(parents=True, exist_ok=True)
         self._index_path = vault_dir / "_index.sqlite"
         self._db = sqlite3.connect(str(self._index_path), check_same_thread=False)
+        self._closed = False
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("""
             CREATE TABLE IF NOT EXISTS vault_index (
@@ -53,6 +52,24 @@ class FilesystemVaultProvider:
         """)
         self._db.commit()
 
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._db.close()
+        self._closed = True
+
+    def __enter__(self) -> FilesystemVaultProvider:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def _safe_resolve(self, path: str) -> Path:
         target = (self._dir / path).resolve()
         if not str(target).startswith(str(self._dir.resolve())):
@@ -66,11 +83,12 @@ class FilesystemVaultProvider:
             end = content.find("---", 3)
             if end != -1:
                 import yaml
+
                 try:
                     fm = yaml.safe_load(content[3:end]) or {}
                 except Exception:
                     pass
-                body = content[end + 3:].strip()
+                body = content[end + 3 :].strip()
         return fm, body
 
     def _extract_tags(self, fm: dict[str, Any], body: str) -> list[str]:
@@ -98,7 +116,8 @@ class FilesystemVaultProvider:
             title = first_h.group(1).strip() if first_h else path
 
         self._db.execute(
-            "INSERT OR REPLACE INTO vault_index (path, title, doc_type, tags, fts) VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO vault_index "
+            "(path, title, doc_type, tags, fts) VALUES (?, ?, ?, ?, ?)",
             (path, title, doc_type, tags, body[:5000]),
         )
         self._db.execute(
@@ -109,7 +128,9 @@ class FilesystemVaultProvider:
 
     async def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         rows = self._db.execute(
-            "SELECT path, title, snippet(vault_fts, 2, '<<', '>>', '...', 30) as snippet, rank FROM vault_fts WHERE vault_fts MATCH ? ORDER BY rank LIMIT ?",
+            "SELECT path, title, "
+            "snippet(vault_fts, 2, '<<', '>>', '...', 30) as snippet, rank "
+            "FROM vault_fts WHERE vault_fts MATCH ? ORDER BY rank LIMIT ?",
             (query, limit),
         ).fetchall()
         return [
@@ -127,6 +148,7 @@ class FilesystemVaultProvider:
         target = self._safe_resolve(path)
         if metadata:
             import yaml
+
             fm_str = yaml.dump(metadata, default_flow_style=False).strip()
             content = f"---\n{fm_str}\n---\n{content}"
         atomic_write(target, content)

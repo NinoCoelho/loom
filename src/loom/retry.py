@@ -6,7 +6,7 @@ import random
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from loom.errors import LLMTransportError, classify_api_error
+from loom.errors import classify_api_error
 
 _counter = itertools.count()
 
@@ -17,7 +17,7 @@ def jittered_backoff(
     max_delay: float = 60.0,
     jitter_ratio: float = 0.5,
 ) -> float:
-    raw = min(base * (2 ** attempt), max_delay)
+    raw = min(base * (2**attempt), max_delay)
     jitter = raw * jitter_ratio * random.random()
     return min(raw - raw * jitter_ratio / 2 + jitter, max_delay)
 

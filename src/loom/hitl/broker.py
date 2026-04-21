@@ -49,7 +49,7 @@ class HitlBroker:
     def __init__(
         self,
         *,
-        publish_hook: Callable[[str, "HitlEvent"], None] | None = None,
+        publish_hook: Callable[[str, HitlEvent], None] | None = None,
     ) -> None:
         """Optional ``publish_hook(session_id, event)`` forwards every
         published event to an external sink (e.g. a web SSE bus) in
@@ -213,7 +213,7 @@ class HitlBroker:
 
         try:
             return await asyncio.wait_for(fut, timeout=timeout_seconds)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._pending.pop((session_id, request_id), None)
             self._requests.pop((session_id, request_id), None)
             self.publish(

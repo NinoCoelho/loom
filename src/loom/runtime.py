@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from loom.home import AgentHome
-from loom.loop import Agent, AgentConfig
 from loom.llm.base import LLMProvider
-from loom.llm.openai_compat import OpenAICompatibleProvider
 from loom.llm.registry import ProviderRegistry
+from loom.loop import Agent, AgentConfig
 from loom.permissions import AgentPermissions
-from loom.skills.guard import SkillGuard
-from loom.skills.manager import SkillManager
 from loom.skills.registry import SkillRegistry
 from loom.store.memory import MemoryStore
 from loom.store.session import SessionStore
@@ -124,9 +120,25 @@ class AgentRuntime:
         self._agent_homes.pop(name, None)
         self._agent_configs.pop(name, None)
         self._agent_permissions.pop(name, None)
-        self._session_stores.pop(name, None)
-        self._memory_stores.pop(name, None)
+        session_store = self._session_stores.pop(name, None)
+        if session_store is not None:
+            session_store.close()
+        memory_store = self._memory_stores.pop(name, None)
+        if memory_store is not None:
+            memory_store.close()
         return True
+
+    def close(self) -> None:
+        for name in list(self._agents):
+            self.remove_agent(name)
+        self._session_stores.clear()
+        self._memory_stores.clear()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def get_session_store(self, agent_name: str) -> SessionStore | None:
         return self._session_stores.get(agent_name)

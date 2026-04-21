@@ -1,4 +1,3 @@
-import asyncio
 import tempfile
 from pathlib import Path
 
@@ -35,10 +34,12 @@ def memory_index(tmp_dir):
 @pytest.fixture
 def perms_default():
     from loom.permissions import AgentPermissions
+
     return AgentPermissions()
 
 
 @pytest.fixture
 def perms_full():
     from loom.permissions import AgentPermissions
+
     return AgentPermissions(soul_writable=True, identity_writable=True, user_writable=True)

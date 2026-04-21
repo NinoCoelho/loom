@@ -1,3 +1,7 @@
+from loom.skills.guard import SkillGuard
+from loom.skills.loader import load_skill
+from loom.skills.manager import SkillManager
+from loom.skills.registry import SkillRegistry
 from loom.skills.types import (
     ACTIVATE_TOOL_SPEC,
     LIST_TOOL_SPEC,
@@ -6,10 +10,6 @@ from loom.skills.types import (
     SkillGuardVerdict,
     SkillMetadata,
 )
-from loom.skills.guard import SkillGuard
-from loom.skills.loader import load_skill
-from loom.skills.manager import SkillManager
-from loom.skills.registry import SkillRegistry
 
 __all__ = [
     "Skill",

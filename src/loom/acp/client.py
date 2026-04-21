@@ -20,11 +20,10 @@ import asyncio
 import json
 import os
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from loom.acp.device import DeviceKeypair, load_or_create_keypair, sign_challenge
-
 
 NOT_CONFIGURED_MESSAGE = (
     "ACP bridge not configured. Set gateway_url (or LOOM_ACP_GATEWAY_URL) "
@@ -44,7 +43,7 @@ class AcpConfig:
     key_path: Path | None = None
 
     @classmethod
-    def from_env(cls, *, prefix: str = "LOOM_ACP_") -> "AcpConfig":
+    def from_env(cls, *, prefix: str = "LOOM_ACP_") -> AcpConfig:
         """Build config from ``LOOM_ACP_*`` env vars.
 
         Recognised: ``LOOM_ACP_GATEWAY_URL``, ``LOOM_ACP_TOKEN``,
@@ -68,8 +67,7 @@ def _require_websockets():
         import websockets
     except ImportError as exc:
         raise ImportError(
-            "loom.acp requires the 'websockets' package. "
-            "Install with: pip install 'loom[acp]'"
+            "loom.acp requires the 'websockets' package. Install with: pip install 'loom[acp]'"
         ) from exc
     return websockets
 
@@ -107,14 +105,16 @@ async def call_agent(
             raw = await asyncio.wait_for(ws.recv(), timeout=config.recv_timeout)
             challenge = json.loads(raw)
             if challenge.get("type") == "challenge":
-                sig = sign_challenge(
-                    keypair, challenge["nonce"], encoding=config.sig_encoding
+                sig = sign_challenge(keypair, challenge["nonce"], encoding=config.sig_encoding)
+                await ws.send(
+                    json.dumps(
+                        {
+                            "type": "auth",
+                            "device_id": keypair.public_hex,
+                            "signature": sig,
+                        }
+                    )
                 )
-                await ws.send(json.dumps({
-                    "type": "auth",
-                    "device_id": keypair.public_hex,
-                    "signature": sig,
-                }))
                 auth_resp = json.loads(
                     await asyncio.wait_for(ws.recv(), timeout=config.recv_timeout)
                 )
@@ -124,12 +124,16 @@ async def call_agent(
             # (Not currently consumed; gateways either challenge or accept the
             # call directly. We can extend this if a new frame type appears.)
 
-            await ws.send(json.dumps({
-                "type": "call",
-                "agent_id": agent_id,
-                "message": message,
-                "request_id": request_id,
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "call",
+                        "agent_id": agent_id,
+                        "message": message,
+                        "request_id": request_id,
+                    }
+                )
+            )
 
             parts: list[str] = []
             async for raw in ws:
@@ -144,7 +148,7 @@ async def call_agent(
                     return f"ACP error: {frame.get('message', 'remote error')}"
             return "".join(parts) or "(empty response)"
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return "ACP error: connection timed out"
     except Exception as exc:
         return f"ACP error: {exc}"

@@ -1,22 +1,19 @@
 """Scheduler tests using scripted drivers and a mock run_fn."""
+
 from __future__ import annotations
 
 import asyncio
 import textwrap
-from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from loom.heartbeat.cron import parse_schedule
 from loom.heartbeat.registry import HeartbeatRegistry
 from loom.heartbeat.scheduler import HeartbeatScheduler
 from loom.heartbeat.store import HeartbeatStore
-from loom.heartbeat.types import HeartbeatDriver, HeartbeatEvent, HeartbeatRecord
 from loom.loop import AgentTurn
-from loom.types import ChatMessage, Role
-
+from loom.types import Role
 
 DRIVER_CODE = textwrap.dedent("""\
     from loom.heartbeat.types import HeartbeatDriver, HeartbeatEvent
@@ -40,7 +37,10 @@ def _make_hb_dir(base: Path, name: str, driver_code: str = DRIVER_CODE) -> Path:
     hb_dir = base / name
     hb_dir.mkdir(parents=True)
     (hb_dir / "HEARTBEAT.md").write_text(
-        f"---\nname: {name}\ndescription: Test\nschedule: \"every 1 second\"\nenabled: true\n---\nDo stuff.\n",
+        (
+            f'---\nname: {name}\ndescription: Test\n'
+            'schedule: "every 1 second"\nenabled: true\n---\nDo stuff.\n'
+        ),
         encoding="utf-8",
     )
     (hb_dir / "driver.py").write_text(driver_code, encoding="utf-8")
@@ -58,7 +58,9 @@ def hb_dir(tmp_dir):
 
 @pytest.fixture
 def store(tmp_dir):
-    return HeartbeatStore(tmp_dir / "hb.sqlite")
+    heartbeat_store = HeartbeatStore(tmp_dir / "hb.sqlite")
+    yield heartbeat_store
+    heartbeat_store.close()
 
 
 @pytest.fixture
@@ -171,7 +173,8 @@ class TestSchedulerLifecycle:
         # Mark as disabled in HEARTBEAT.md
         md = hb_dir / "off-hb" / "HEARTBEAT.md"
         md.write_text(
-            "---\nname: off-hb\ndescription: Test\nschedule: \"every 1 second\"\nenabled: false\n---\nDo stuff.\n"
+            "---\nname: off-hb\ndescription: Test\n"
+            'schedule: "every 1 second"\nenabled: false\n---\nDo stuff.\n'
         )
         reg = HeartbeatRegistry(hb_dir)
         reg.scan()
@@ -185,16 +188,19 @@ class TestSchedulerLifecycle:
 class TestSchedulerWithSessions:
     async def test_session_created_on_fire(self, tmp_dir, store, run_fn):
         from loom.store.session import SessionStore
+
         sessions = SessionStore(tmp_dir / "sessions.sqlite")
+        try:
+            hb_dir = tmp_dir / "heartbeats"
+            _make_hb_dir(hb_dir, "sess-hb")
+            reg = HeartbeatRegistry(hb_dir)
+            reg.scan()
+            sched = HeartbeatScheduler(reg, store, run_fn, sessions=sessions)
 
-        hb_dir = tmp_dir / "heartbeats"
-        _make_hb_dir(hb_dir, "sess-hb")
-        reg = HeartbeatRegistry(hb_dir)
-        reg.scan()
-        sched = HeartbeatScheduler(reg, store, run_fn, sessions=sessions)
-
-        await sched.trigger("sess-hb")
-        all_sessions = sessions.list_sessions()
-        assert len(all_sessions) == 1
-        assert "heartbeat" in all_sessions[0]["id"]
-        assert "sess-hb" in (all_sessions[0]["title"] or "")
+            await sched.trigger("sess-hb")
+            all_sessions = sessions.list_sessions()
+            assert len(all_sessions) == 1
+            assert "heartbeat" in all_sessions[0]["id"]
+            assert "sess-hb" in (all_sessions[0]["title"] or "")
+        finally:
+            sessions.close()
