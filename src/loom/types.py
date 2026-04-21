@@ -34,8 +34,17 @@ class ToolSpec(BaseModel):
 
 
 class Usage(BaseModel):
-    input_tokens: int
-    output_tokens: int
+    """Token usage for one provider round-trip.
+
+    ``cache_read_tokens`` / ``cache_write_tokens`` are optional fields
+    reported by providers that support prompt caching (Anthropic native,
+    Anthropic-on-Bedrock, some OpenRouter proxies). Providers that
+    don't report caching leave them at 0."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 class ChatMessage(BaseModel):
