@@ -8,7 +8,16 @@ from loom.store.memory import (
 from loom.store.memory import (
     SearchHit as SearchHit,
 )
+from loom.store.secrets import ApiKeySecret as ApiKeySecret
+from loom.store.secrets import BasicAuthSecret as BasicAuthSecret
+from loom.store.secrets import BearerTokenSecret as BearerTokenSecret
+from loom.store.secrets import OAuth2ClientCredentialsSecret as OAuth2ClientCredentialsSecret
+from loom.store.secrets import PasswordSecret as PasswordSecret
+from loom.store.secrets import Secret as Secret
+from loom.store.secrets import SecretMetadata as SecretMetadata
 from loom.store.secrets import SecretsStore as SecretsStore
+from loom.store.secrets import SecretStore as SecretStore
+from loom.store.secrets import SshPrivateKeySecret as SshPrivateKeySecret
 from loom.store.session import SessionStore as SessionStore
 from loom.store.vault import (
     FilesystemVaultProvider as FilesystemVaultProvider,
@@ -22,11 +31,20 @@ from loom.store.vault import (
 
 __all__ = [
     "atomic_write",
+    "ApiKeySecret",
+    "BasicAuthSecret",
+    "BearerTokenSecret",
     "MemoryEntry",
     "MemoryStore",
-    "SearchHit",
+    "OAuth2ClientCredentialsSecret",
+    "PasswordSecret",
+    "Secret",
+    "SecretMetadata",
+    "SecretStore",
     "SecretsStore",
+    "SearchHit",
     "SessionStore",
+    "SshPrivateKeySecret",
     "FilesystemVaultProvider",
     "VaultProvider",
     "VaultStore",
