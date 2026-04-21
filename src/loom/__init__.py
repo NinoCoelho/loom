@@ -10,13 +10,18 @@ from loom.auth import (
     CredentialPolicy,
     CredentialResolver,
     GateDecision,
+    JwtBearerApplier,
+    MissingPrincipalError,
     NoApplierError,
     OAuth2CCHttpApplier,
     PolicyEnforcer,
     PolicyMode,
     PolicyStore,
+    ScopeAccessDenied,
+    ScopeAcl,
     ScopeNotFoundError,
     SecretExpiredError,
+    SigV4Applier,
     SshConnectArgs,
     SshKeyApplier,
     SshPasswordApplier,
@@ -58,11 +63,14 @@ from loom.skills.guard import SkillGuard
 from loom.skills.manager import SkillManager
 from loom.skills.registry import SkillRegistry
 from loom.skills.types import Skill, SkillGuardVerdict, SkillMetadata
+from loom.store.keychain import KeychainStore
 from loom.store.memory import MemoryEntry, MemoryStore
 from loom.store.secrets import (
     ApiKeySecret,
+    AwsSigV4Secret,
     BasicAuthSecret,
     BearerTokenSecret,
+    JwtSigningKeySecret,
     OAuth2ClientCredentialsSecret,
     PasswordSecret,
     Secret,
@@ -122,10 +130,18 @@ __all__ = [
     "SshConnectArgs",
     "SshPasswordApplier",
     "SshKeyApplier",
+    # auth — Phase C
+    "SigV4Applier",
+    "JwtBearerApplier",
+    "ScopeAccessDenied",
+    "MissingPrincipalError",
+    "ScopeAcl",
     # store.secrets
     "ApiKeySecret",
+    "AwsSigV4Secret",
     "BasicAuthSecret",
     "BearerTokenSecret",
+    "JwtSigningKeySecret",
     "OAuth2ClientCredentialsSecret",
     "PasswordSecret",
     "Secret",
@@ -133,6 +149,8 @@ __all__ = [
     "SecretStore",
     "SecretsStore",
     "SshPrivateKeySecret",
+    # store.keychain
+    "KeychainStore",
     "Agent",
     "AgentConfig",
     "AgentHome",

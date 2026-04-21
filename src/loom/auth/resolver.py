@@ -14,19 +14,40 @@ Phase B adds an optional ``enforcer`` parameter.  When provided, the enforcer
 gates credential access *before* the secret is fetched.  Callers that omit
 ``enforcer`` retain identical Phase A behaviour — fully backward compatible.
 
+Phase C adds an optional ``scope_acl`` callable.  When provided it is called
+*before* the policy enforcer with ``(principal, scope, transport)`` and must
+return ``True`` to allow or ``False`` to deny.  ``principal`` is taken from
+``context["principal"]``; if not supplied and an ACL is installed, a
+``MissingPrincipalError`` is raised.  Default ``None`` = allow-all.
+
 See docs/rfcs/0002-credentials-and-appliers.md for design rationale.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from loom.auth.appliers import Applier
-from loom.auth.errors import NoApplierError, ScopeNotFoundError
+from loom.auth.errors import NoApplierError, ScopeAccessDenied, ScopeNotFoundError
 from loom.store.secrets import SecretStore
 
 if TYPE_CHECKING:
     from loom.auth.enforcer import PolicyEnforcer
+
+# Callable type: (principal: str, scope: str, transport: str) -> bool
+ScopeAcl = Callable[[str, str, str], bool]
+
+
+class MissingPrincipalError(Exception):
+    """Raised when a scope ACL is configured but ``context["principal"]`` is absent."""
+
+    def __init__(self, scope: str) -> None:
+        super().__init__(
+            f"ACL is installed but no principal was provided in context for scope {scope!r}. "
+            "Pass context={'principal': '<name>'} to resolve_for()."
+        )
+        self.scope = scope
 
 
 class CredentialResolver:
@@ -42,6 +63,10 @@ class CredentialResolver:
             :class:`~loom.auth.enforcer.CredentialDenied`.  If ``None``
             (default), gating is skipped entirely — Phase A behaviour is
             preserved.
+        scope_acl: Optional ACL callable ``(principal, scope, transport) -> bool``.
+            Called before the policy enforcer.  If it returns ``False``,
+            :class:`~loom.auth.errors.ScopeAccessDenied` is raised.  If
+            ``None`` (default), all principals are allowed (backward-compat).
 
     Usage::
 
@@ -57,10 +82,12 @@ class CredentialResolver:
         appliers: dict[tuple[str, str], Applier] | None = None,
         *,
         enforcer: PolicyEnforcer | None = None,
+        scope_acl: ScopeAcl | None = None,
     ) -> None:
         self._store = store
         self._appliers: dict[tuple[str, str], Applier] = dict(appliers or {})
         self._enforcer = enforcer
+        self._scope_acl = scope_acl
 
     def register(self, applier: Applier, *, transport: str) -> None:
         """Register *applier* for its ``secret_type`` on *transport*.
@@ -100,6 +127,14 @@ class CredentialResolver:
                 ``(secret_type, transport)`` pair.
         """
         merged_context: dict = {"scope": scope, **(context or {})}
+
+        # Phase C ACL — runs before enforcer; skipped when no ACL is configured
+        if self._scope_acl is not None:
+            principal = merged_context.get("principal")
+            if principal is None:
+                raise MissingPrincipalError(scope)
+            if not self._scope_acl(principal, scope, transport):
+                raise ScopeAccessDenied(principal, scope)
 
         # Phase B gate — skipped when no enforcer is configured (Phase A compat)
         if self._enforcer is not None:

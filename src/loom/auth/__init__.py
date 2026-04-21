@@ -26,6 +26,12 @@ Public surface::
         SshConnectArgs,
         SshPasswordApplier,
         SshKeyApplier,
+        # Phase C — KeychainStore, SigV4, JWT, ACL
+        SigV4Applier,
+        JwtBearerApplier,
+        ScopeAccessDenied,
+        MissingPrincipalError,
+        ScopeAcl,
     )
 
 Layer 2 of RFC 0002: appliers turn typed ``Secret`` objects into
@@ -46,7 +52,9 @@ from loom.auth.appliers import (
     Applier,
     BasicHttpApplier,
     BearerHttpApplier,
+    JwtBearerApplier,
     OAuth2CCHttpApplier,
+    SigV4Applier,
     SshConnectArgs,
     SshKeyApplier,
     SshPasswordApplier,
@@ -55,12 +63,13 @@ from loom.auth.enforcer import CredentialDenied, GateDecision, PolicyEnforcer
 from loom.auth.errors import (
     AuthApplierError,
     NoApplierError,
+    ScopeAccessDenied,
     ScopeNotFoundError,
     SecretExpiredError,
 )
 from loom.auth.policies import CredentialPolicy, PolicyMode
 from loom.auth.policy_store import PolicyStore
-from loom.auth.resolver import CredentialResolver
+from loom.auth.resolver import CredentialResolver, MissingPrincipalError, ScopeAcl
 
 __all__ = [
     # Phase A
@@ -86,4 +95,10 @@ __all__ = [
     "SshConnectArgs",
     "SshPasswordApplier",
     "SshKeyApplier",
+    # Phase C — SigV4, JWT, ACL
+    "SigV4Applier",
+    "JwtBearerApplier",
+    "ScopeAccessDenied",
+    "MissingPrincipalError",
+    "ScopeAcl",
 ]

@@ -38,3 +38,20 @@ class ScopeNotFoundError(AuthApplierError):
     def __init__(self, scope: str) -> None:
         super().__init__(f"Scope {scope!r} not found in SecretStore")
         self.scope = scope
+
+
+class ScopeAccessDenied(AuthApplierError):
+    """Raised by ``CredentialResolver`` when the ACL hook denies access.
+
+    The ACL hook (``scope_acl`` kwarg on ``CredentialResolver``) is called
+    before the policy enforcer.  Denial here means the *principal* is not
+    allowed to use this scope at all — distinct from policy denial (HITL,
+    time-box, etc.) which is ``CredentialDenied``.
+    """
+
+    def __init__(self, principal: str, scope: str) -> None:
+        super().__init__(
+            f"Principal {principal!r} is not allowed to access scope {scope!r}"
+        )
+        self.principal = principal
+        self.scope = scope
