@@ -57,26 +57,28 @@ Building a production agent means solving the same problems over and over: manag
 ### Install
 
 ```bash
-pip install loom
+pip install "git+https://github.com/NinoCoelho/loom.git"
 ```
 
 For Anthropic support:
 ```bash
-pip install "loom[anthropic]"
+pip install "loom[anthropic] @ git+https://github.com/NinoCoelho/loom.git"
 ```
 
 For the ACP protocol:
 ```bash
-pip install "loom[acp]"
+pip install "loom[acp] @ git+https://github.com/NinoCoelho/loom.git"
 ```
 
 For MCP (Model Context Protocol) client support:
 ```bash
-pip install "loom[mcp]"
+pip install "loom[mcp] @ git+https://github.com/NinoCoelho/loom.git"
 ```
 
 For everything (development):
 ```bash
+git clone https://github.com/NinoCoelho/loom.git
+cd loom
 pip install -e ".[dev,anthropic,acp,mcp]"
 ```
 
@@ -248,7 +250,7 @@ See [docs/API.md](docs/API.md) for the complete API reference with type signatur
 ## Development
 
 ```bash
-git clone https://github.com/your-org/loom.git
+git clone https://github.com/NinoCoelho/loom.git
 cd loom
 python -m venv .venv
 source .venv/bin/activate
