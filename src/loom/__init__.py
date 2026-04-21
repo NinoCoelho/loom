@@ -1,4 +1,17 @@
 from loom.acp import AcpCallTool, AcpConfig
+from loom.auth import (
+    ApiKeyHeaderApplier,
+    ApiKeyStringApplier,
+    Applier,
+    AuthApplierError,
+    BasicHttpApplier,
+    BearerHttpApplier,
+    CredentialResolver,
+    NoApplierError,
+    OAuth2CCHttpApplier,
+    ScopeNotFoundError,
+    SecretExpiredError,
+)
 from loom.heartbeat import (
     HeartbeatDriver,
     HeartbeatEvent,
@@ -37,6 +50,18 @@ from loom.skills.manager import SkillManager
 from loom.skills.registry import SkillRegistry
 from loom.skills.types import Skill, SkillGuardVerdict, SkillMetadata
 from loom.store.memory import MemoryEntry, MemoryStore
+from loom.store.secrets import (
+    ApiKeySecret,
+    BasicAuthSecret,
+    BearerTokenSecret,
+    OAuth2ClientCredentialsSecret,
+    PasswordSecret,
+    Secret,
+    SecretMetadata,
+    SecretsStore,
+    SecretStore,
+    SshPrivateKeySecret,
+)
 from loom.store.vault import FilesystemVaultProvider, VaultProvider
 from loom.tools.base import ToolHandler, ToolResult
 from loom.tools.registry import ToolRegistry
@@ -61,9 +86,32 @@ from loom.types import (
     UsageEvent,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
+    # auth
+    "Applier",
+    "BasicHttpApplier",
+    "BearerHttpApplier",
+    "OAuth2CCHttpApplier",
+    "ApiKeyHeaderApplier",
+    "ApiKeyStringApplier",
+    "CredentialResolver",
+    "AuthApplierError",
+    "SecretExpiredError",
+    "NoApplierError",
+    "ScopeNotFoundError",
+    # store.secrets
+    "ApiKeySecret",
+    "BasicAuthSecret",
+    "BearerTokenSecret",
+    "OAuth2ClientCredentialsSecret",
+    "PasswordSecret",
+    "Secret",
+    "SecretMetadata",
+    "SecretStore",
+    "SecretsStore",
+    "SshPrivateKeySecret",
     "Agent",
     "AgentConfig",
     "AgentHome",
