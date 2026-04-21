@@ -2,7 +2,10 @@
 
 > **Phase A landed in v0.3.** `loom.store.secrets.SecretStore` (Fernet-encrypted typed secrets)
 > and `loom.auth` (HTTP appliers + `CredentialResolver`) are available as of v0.3.
-> Phase B (policies + HITL) and Phase C (KeychainStore) are not yet implemented.
+> **Phase B landed in v0.3 (policies + HITL integration).** `loom.auth.PolicyMode`,
+> `CredentialPolicy`, `PolicyStore`, `PolicyEnforcer`, `GateDecision`, and `CredentialDenied`
+> are available. `CredentialResolver` now accepts an optional `enforcer` kwarg.
+> Phase C (KeychainStore) is not yet implemented.
 
 - **Status**: Draft
 - **Author**: —
