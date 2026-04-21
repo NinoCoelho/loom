@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "loom"
+name = "loom-framework"
 version = "0.2.0"
 description = "A reusable agentic framework with tool calling, skills, streaming, HITL, and multi-provider support"
 readme = "README.md"
