@@ -61,7 +61,9 @@ class ToolHandler(ABC):
 | `ask_user` | `tools/hitl.py` | HITL: confirm/choice/text questions to the user |
 | `terminal` | `tools/hitl.py` | Approval-gated shell command execution |
 | `vault` | `tools/vault.py` | Search/read/write/list on a vault store |
-| `memory` | `tools/memory.py` | Simple key-value markdown memory |
+| `memory` | `tools/memory.py` | Read/write/search/list/delete on structured memory |
+| `delegate` | `tools/delegate.py` | Inter-agent delegation via AgentRuntime |
+| `edit_identity` | `tools/profile.py` | Edit SOUL/IDENTITY/USER.md within permission bounds |
 
 **Adding custom tools** -- subclass `ToolHandler`, implement `tool` and `invoke`, register with `ToolRegistry`.
 
@@ -175,7 +177,7 @@ The loop handles tool call assembly: collects fragments, dispatches completed to
 
 ### 8. Store Layer (`loom.store`)
 
-**SessionStore** -- SQLite at `~/.loom/sessions.sqlite`:
+**SessionStore** -- SQLite at `~/.loom/agents/<name>/sessions.sqlite` (per-agent):
 - Message persistence with tool_calls serialization
 - Usage tracking (tokens, tool calls)
 - Session metadata (title, model, context)
@@ -241,6 +243,56 @@ Apps extend with domain routes.
 - Only retries `LLMTransportError` with retryable classification
 - Monotonic counter for decorrelation
 
+### 12. Agent Communication Protocol (`loom.acp`)
+
+ACP enables agents to call external agents over WebSocket with Ed25519 authentication.
+
+**DeviceKeypair** -- Ed25519 keypair stored at `~/.loom/device.key`:
+- `sign_challenge(challenge)` -- produce a base64 signature
+- `public_key_b64` -- base64-encoded public key
+
+**AcpCallTool** -- tool handler for calling remote agents:
+- Takes `url`, `message`, and optional `agent_name`
+- Opens a WebSocket connection, authenticates via challenge-response
+- Returns the remote agent's response
+
+**AcpConfig** -- connection configuration (URL, timeout, retries).
+
+### 13. HITL Broker (`loom.hitl`)
+
+For web/SSE integrations where the agent can't directly prompt a terminal user.
+
+**HitlBroker** -- session-scoped Future registry + pub/sub event bus:
+- `ask(session_id, kind, message, choices, timeout)` -- parks on an `asyncio.Future`
+- `answer(session_id, request_id, answer)` -- resolves the Future
+- `subscribe(session_id)` -- async iterator of `HitlEvent` for SSE streaming
+
+**BrokerAskUserTool** -- wraps `HitlBroker.ask()` as a `ToolHandler`, scoped to a session ID.
+
+**Use case:** The FastAPI server creates a `HitlBroker`, wires `BrokerAskUserTool` into the agent's tool registry, and exposes an HTTP endpoint so frontends can resolve pending questions.
+
+### 14. Memory Recall (`loom.store.memory`)
+
+Beyond simple search, `MemoryStore.recall()` provides hybrid retrieval:
+
+**Scoring:** BM25 (FTS5) + salience (pinned/importance/access_count) + recency, blended into a single rank score.
+
+**Salience signals:**
+- `pinned` -- always promoted to top results
+- `importance` -- user-set priority (1-5)
+- `access_count` -- frequently accessed memories rank higher
+- `recency` -- decayed by age
+
+**EmbeddingProvider** (optional protocol):
+```python
+class EmbeddingProvider(Protocol):
+    dim: int
+    async def embed(self, texts: list[str]) -> list[list[float]]: ...
+```
+When wired in, vector similarity is added to the hybrid score. Default is pure BM25+salience.
+
+**Memory preview** -- top 5 recent memories auto-injected into system prompt (1500 char budget).
+
 ## Data Flow
 
 ```
@@ -249,13 +301,14 @@ User message
     v
 Agent.run_turn(messages, context)
     |
-    |-- Build system prompt (preamble + context + skill catalog + pending question)
+    |-- Build system prompt (preamble + identity + memory preview + skill catalog + pending question)
     |-- Annotate short replies (yes/no + pending question)
     |
     v
 LOOP (max_iterations):
     |
     |-- Resolve provider (from ProviderRegistry or single provider)
+    |-- Optionally route to best model via classify_message + choose_model
     |-- Call LLM (with jittered retry on transport errors)
     |
     |-- If stop (no tool_calls):
@@ -265,6 +318,8 @@ LOOP (max_iterations):
     |-- If tool_calls:
     |       |-- For each tool_call:
     |       |       |-- If activate_skill: inject skill body
+    |       |       |-- If delegate: forward to sub-agent via AgentRuntime
+    |       |       |-- If acp_call: forward to external agent via WebSocket
     |       |       |-- Else: dispatch to ToolRegistry
     |       |       |-- Append tool result to messages
     |       |-- Continue loop

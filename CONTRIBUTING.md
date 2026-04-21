@@ -17,17 +17,23 @@ pip install -e ".[dev,anthropic]"
 ```
 loom/
   src/loom/          -- Framework source
+    acp/             -- Agent Communication Protocol (WebSocket + Ed25519)
+    config/          -- Configuration management
+    hitl/            -- Human-in-the-Loop broker (web/SSE)
     llm/             -- LLM provider layer
     tools/           -- Tool handler abstractions
     skills/          -- Skill system
-    store/           -- Persistence (sessions, vault, secrets)
+    store/           -- Persistence (sessions, vault, secrets, memory)
     server/          -- FastAPI server factory
-    config/          -- Configuration management
     routing/         -- Model routing and classification
     loop.py          -- Core agentic loop
     types.py         -- Shared types
     errors.py        -- Error classification
     retry.py         -- Retry logic
+    home.py          -- Agent Home directory layout
+    permissions.py   -- Agent permissions model
+    prompt.py        -- PromptBuilder system
+    runtime.py       -- Multi-agent lifecycle manager
   examples/tui/      -- Test TUI application
   docs/              -- Additional documentation
 ```

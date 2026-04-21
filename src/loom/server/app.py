@@ -37,7 +37,7 @@ def create_app(
     heartbeat_scheduler: Any = None,  # HeartbeatScheduler | None
     heartbeat_store: Any = None,      # HeartbeatStore | None
 ) -> FastAPI:
-    app = FastAPI(title="Loom Agent", version="0.1.0")
+    app = FastAPI(title="Loom Agent", version="0.2.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -58,7 +58,7 @@ def create_app(
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "version": "0.1.0"}
+        return {"status": "ok", "version": "0.2.0"}
 
     @app.post("/chat", response_model=ChatReply)
     async def chat(req: ChatRequest):

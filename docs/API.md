@@ -50,8 +50,10 @@ class ToolSpec(BaseModel):
 ### `Usage`
 ```python
 class Usage(BaseModel):
-    input_tokens: int
-    output_tokens: int
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 ```
 
 ### `ChatResponse`
@@ -69,6 +71,11 @@ Discriminated union:
 - `ToolCallDeltaEvent(type="tool_call_delta", index: int, id: str | None, name: str | None, arguments_delta: str | None)`
 - `UsageEvent(type="usage", usage: Usage)`
 - `StopEvent(type="stop", stop_reason: StopReason)`
+- `ToolExecStartEvent(type="tool_exec_start", tool_call_id: str, name: str, arguments: str)`
+- `ToolExecResultEvent(type="tool_exec_result", tool_call_id: str, name: str, text: str, is_error: bool = False)`
+- `LimitReachedEvent(type="limit_reached", iterations: int)`
+- `ErrorEvent(type="error", message: str, reason: str | None, status_code: int | None, retryable: bool = False)`
+- `DoneEvent(type="done", context: dict = {})`
 
 ---
 
@@ -80,9 +87,17 @@ class AgentConfig:
     max_iterations: int = 32
     model: str | None = None
     system_preamble: str = ""
+    extra_tools: list[ToolHandler] = []
     on_before_turn: Callable[[list[ChatMessage]], list[ChatMessage]] | None
     on_after_turn: Callable[[AgentTurn], None] | None
     on_tool_result: Callable[[ToolCall, str], None] | None
+    on_event: Callable[[StreamEvent], None] | None
+    choose_model: Callable[[list[ChatMessage]], str | None] | None
+    limit_message_builder: Callable[[int], str] | None
+    affirmatives: set[str]
+    negatives: set[str]
+    serialize_event: Callable[[StreamEvent], str] | None
+    before_llm_call: Callable[[list[ChatMessage], list[ToolSpec]], None] | None
 ```
 
 ### `Agent`
@@ -165,6 +180,8 @@ class ToolRegistry:
 | `TerminalTool` | `terminal` | `tools/hitl.py` |
 | `VaultToolHandler` | `vault` | `tools/vault.py` |
 | `MemoryToolHandler` | `memory` | `tools/memory.py` |
+| `DelegateTool` | `delegate` | `tools/delegate.py` |
+| `EditIdentityTool` | `edit_identity` | `tools/profile.py` |
 
 ---
 
@@ -387,3 +404,163 @@ class ClassifiedError(BaseModel):
 ### `jittered_backoff(attempt, base=2.0, max_delay=60.0, jitter_ratio=0.5) -> float`
 ### `async with_retry(coro_factory, max_attempts=3) -> Any`
 Retries `LLMTransportError` with jittered exponential backoff.
+
+---
+
+## Agent Communication Protocol (`loom.acp`)
+
+### `AcpConfig`
+```python
+class AcpConfig(BaseModel):
+    url: str
+    timeout: float = 30.0
+    retries: int = 2
+```
+
+### `AcpCallTool(ToolHandler)`
+Tool handler for calling remote agents over WebSocket with Ed25519 authentication.
+
+### `DeviceKeypair`
+```python
+class DeviceKeypair:
+    public_key_b64: str
+    def sign_challenge(self, challenge: str) -> str: ...
+```
+
+### `load_or_create_keypair(path: Path) -> DeviceKeypair`
+
+---
+
+## HITL Broker (`loom.hitl`)
+
+### `HitlBroker`
+```python
+class HitlBroker:
+    async def ask(self, session_id: str, kind: str, message: str, choices: list[str] | None = None, timeout: float = 120.0) -> str: ...
+    def answer(self, session_id: str, request_id: str, answer: str) -> None: ...
+    async def subscribe(self, session_id: str) -> AsyncIterator[HitlEvent]: ...
+```
+
+### `BrokerAskUserTool(ToolHandler)`
+Wraps `HitlBroker.ask()` as a tool handler, scoped to a session ID.
+
+### `HitlRequest`
+```python
+class HitlRequest(BaseModel):
+    request_id: str
+    session_id: str
+    kind: str
+    message: str
+    choices: list[str] | None
+```
+
+### `HitlEvent`
+```python
+class HitlEvent(BaseModel):
+    type: str  # "request" | "resolved" | "timeout"
+    request: HitlRequest | None
+    answer: str | None
+```
+
+### Constants
+- `CURRENT_SESSION_ID` -- context key for session-scoped HITL
+- `TIMEOUT_SENTINEL` -- returned when a HITL request times out
+
+---
+
+## Memory Store (`loom.store.memory`)
+
+### `MemoryEntry`
+```python
+class MemoryEntry:
+    key: str
+    category: str
+    tags: list[str]
+    content: str
+    created: str
+    updated: str
+    importance: int = 3
+    pinned: bool = False
+    access_count: int = 0
+```
+
+### `MemoryStore`
+```python
+class MemoryStore:
+    def __init__(self, memory_dir: Path, embedding_provider: EmbeddingProvider | None = None): ...
+    async def write(self, key: str, content: str, category: str = "", tags: list[str] = []) -> MemoryEntry: ...
+    async def read(self, key: str) -> MemoryEntry | None: ...
+    async def search(self, query: str, limit: int = 10) -> list[MemoryEntry]: ...
+    async def recall(self, query: str, limit: int = 10) -> list[RecallHit]: ...
+    async def delete(self, key: str) -> bool: ...
+    async def list_entries(self, category: str = "") -> list[MemoryEntry]: ...
+    async def pin(self, key: str) -> bool: ...
+    async def set_importance(self, key: str, level: int) -> bool: ...
+    async def touch(self, key: str) -> None: ...
+```
+
+### `EmbeddingProvider` (Protocol)
+```python
+class EmbeddingProvider(Protocol):
+    dim: int
+    async def embed(self, texts: list[str]) -> list[list[float]]: ...
+```
+
+### `RecallHit`
+```python
+class RecallHit(BaseModel):
+    entry: MemoryEntry
+    score: float
+    source: str  # "bm25" | "salience" | "recency" | "hybrid"
+```
+
+---
+
+## Home & Identity (`loom.home`, `loom.permissions`, `loom.prompt`)
+
+### `AgentHome`
+```python
+class AgentHome:
+    def __init__(self, root: Path, name: str = "default"): ...
+    @property
+    def soul_path(self) -> Path: ...
+    @property
+    def identity_path(self) -> Path: ...
+    @property
+    def user_path(self) -> Path: ...
+    @property
+    def skills_dir(self) -> Path: ...
+    @property
+    def memory_dir(self) -> Path: ...
+    @property
+    def vault_dir(self) -> Path: ...
+    @property
+    def sessions_db(self) -> Path: ...
+    def ensure_dirs(self) -> None: ...
+```
+
+### `AgentPermissions`
+```python
+class AgentPermissions(BaseModel):
+    user_writable: bool = False
+    soul_writable: bool = False
+    identity_writable: bool = False
+    skills_creatable: bool = False
+    terminal_allowed: bool = False
+    delegate_allowed: bool = False
+```
+
+### `PromptSection`
+```python
+class PromptSection(BaseModel):
+    title: str
+    body: str
+    priority: int = 0
+```
+
+### `PromptBuilder`
+```python
+class PromptBuilder:
+    def add(self, section: PromptSection) -> None: ...
+    def build(self) -> str: ...
+```
