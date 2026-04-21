@@ -542,12 +542,14 @@ class Agent:
                 )
                 if self._config.on_after_turn:
                     self._config.on_after_turn(turn)
+                final_assistant = ChatMessage(role=Role.ASSISTANT, content=reply)
                 yield _wrap(DoneEvent(context={
                     "model": model_name,
                     "iterations": iteration + 1,
                     "input_tokens": total_input,
                     "output_tokens": total_output,
                     "tool_calls": total_tool_calls,
+                    "messages": [m.model_dump() for m in all_messages + [final_assistant]],
                 }))
                 return
 
@@ -607,5 +609,6 @@ class Agent:
             "input_tokens": total_input,
             "output_tokens": total_output,
             "tool_calls": total_tool_calls,
+            "messages": [m.model_dump() for m in all_messages],
             "limit_reached": True,
         }))
