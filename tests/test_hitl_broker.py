@@ -71,6 +71,34 @@ class TestHitlBroker:
         assert result == TIMEOUT_SENTINEL
         assert broker.pending("s1") == []
 
+    async def test_publish_hook_forwards_events(self) -> None:
+        received: list[tuple[str, HitlEvent]] = []
+        broker = HitlBroker(
+            publish_hook=lambda sid, ev: received.append((sid, ev))
+        )
+        task = asyncio.create_task(broker.ask("s1", "ok?", timeout_seconds=5))
+        await asyncio.sleep(0)
+        assert any(ev.kind == "user_request" for _, ev in received)
+        sid, ev = next((s, e) for s, e in received if e.kind == "user_request")
+        assert sid == "s1"
+        broker.resolve("s1", ev.data["request_id"], "yes")
+        assert await task == "yes"
+
+    async def test_publish_hook_failure_swallowed(self) -> None:
+        def boom(sid: str, ev: HitlEvent) -> None:
+            raise RuntimeError("sink down")
+
+        broker = HitlBroker(publish_hook=boom)
+        # Should not raise even though hook always explodes.
+        task = asyncio.create_task(broker.ask("s1", "ok?", timeout_seconds=5))
+        await asyncio.sleep(0)
+        # Find the request_id via the in-process subscriber path.
+        # (pending() exposes the currently-registered request.)
+        requests = broker.pending("s1")
+        assert len(requests) == 1
+        broker.resolve("s1", requests[0].request_id, "yes")
+        assert await task == "yes"
+
     async def test_resolve_unknown_returns_false(self) -> None:
         broker = HitlBroker()
         assert broker.resolve("s1", "nope", "x") is False
