@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import time
+import uuid
 from collections.abc import Awaitable
 from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
@@ -32,8 +33,10 @@ import httpx
 from loom.auth.errors import AuthApplierError, SecretExpiredError
 from loom.store.secrets import (
     ApiKeySecret,
+    AwsSigV4Secret,
     BasicAuthSecret,
     BearerTokenSecret,
+    JwtSigningKeySecret,
     OAuth2ClientCredentialsSecret,
     PasswordSecret,
     Secret,
@@ -310,3 +313,184 @@ class SshKeyApplier:
             client_keys=[key],
         )
         return args
+
+
+# ---------------------------------------------------------------------------
+# SigV4Applier (RFC 0002 Phase C — AWS)
+# ---------------------------------------------------------------------------
+
+
+class SigV4Applier:
+    """Signs HTTP requests with AWS Signature Version 4.
+
+    Uses ``botocore`` (from ``loom[aws]``) which implements the SigV4 algorithm.
+    Imported lazily so the base loom install does not require botocore.
+
+    Context keys (all optional — override defaults from the secret):
+    - ``method`` (str): HTTP method, default ``"GET"``.
+    - ``url`` (str): Full request URL (required for signing).
+    - ``headers`` (dict[str, str]): Existing request headers (enriched in place).
+    - ``body`` (bytes | str | None): Request body bytes.
+    - ``service`` (str): AWS service name, e.g. ``"execute-api"``, ``"s3"``.
+    - ``region`` (str): AWS region override (falls back to secret's ``region`` or ``"us-east-1"``).
+
+    Output: ``dict[str, str]`` — the *full* headers dict including SigV4
+    ``Authorization``, ``x-amz-date``, ``x-amz-security-token`` (if applicable).
+
+    Security: ``secret_access_key`` is never included in the output headers or
+    log messages.
+    """
+
+    secret_type: str = "aws_sigv4"
+
+    async def apply(self, secret: AwsSigV4Secret, context: dict) -> dict[str, str]:  # type: ignore[override]
+        try:
+            import botocore.auth
+            import botocore.awsrequest
+            import botocore.credentials
+        except ImportError as exc:
+            raise ImportError(
+                "botocore is required for SigV4 request signing. "
+                "Install it with: pip install \"loom[aws]\""
+            ) from exc
+
+        method: str = context.get("method", "GET").upper()
+        url: str = context.get("url", "")
+        body = context.get("body") or b""
+        if isinstance(body, str):
+            body = body.encode("utf-8")
+
+        service: str = context.get("service", "execute-api")
+        region: str = (
+            context.get("region")
+            or secret.get("region")
+            or "us-east-1"
+        )
+
+        # Build botocore credentials object — never exposes secret_access_key in headers
+        creds = botocore.credentials.Credentials(
+            access_key=secret["access_key_id"],
+            secret_key=secret["secret_access_key"],
+            token=secret.get("session_token"),
+        )
+
+        # Build AWSRequest
+        incoming_headers: dict[str, str] = dict(context.get("headers") or {})
+        request = botocore.awsrequest.AWSRequest(
+            method=method,
+            url=url,
+            data=body,
+            headers=incoming_headers,
+        )
+
+        # Sign
+        signer = botocore.auth.SigV4Auth(creds, service, region)
+        signer.add_auth(request)
+
+        # Return the final headers dict (includes Authorization, x-amz-date, etc.)
+        return dict(request.headers)
+
+
+# ---------------------------------------------------------------------------
+# JwtBearerApplier (RFC 0002 Phase C — client-assertion JWT)
+# ---------------------------------------------------------------------------
+
+
+class JwtBearerApplier:
+    """Produces a signed JWT and applies it as ``Authorization: Bearer <jwt>``.
+
+    Uses PyJWT with the ``cryptography`` backend (already a core loom dep).
+
+    Claims built at ``apply()`` time:
+    - ``iss`` — ``secret["issuer"]``
+    - ``sub`` — ``secret["subject"]`` (omitted if ``None``)
+    - ``aud`` — ``secret["audience"]``
+    - ``iat`` — current UTC unix timestamp
+    - ``exp`` — ``iat + ttl_seconds`` (default 300 s)
+    - ``jti`` — a fresh UUID per token
+
+    Cache: tokens are cached in-process keyed by ``(scope, version)``.  The
+    cache entry is valid as long as the token has not expired (with a 30-second
+    buffer).  Version comes from ``context["version"]``; bumping it (via
+    ``SecretStore.rotate``) forces a new JWT.
+
+    Algorithm support:
+    - ``RS256`` / ``ES256`` — ``secret["private_key_pem"]`` is a PEM private key.
+    - ``HS256`` — ``secret["private_key_pem"]`` is treated as the HMAC shared secret.
+
+    Context keys:
+    - ``scope`` (str): loom scope name; used as cache key dimension.
+    - ``version`` (int): secret version; cache-busting on rotate.
+
+    Output: ``{"Authorization": "Bearer <signed-jwt>"}``
+    """
+
+    secret_type: str = "jwt_signing_key"
+
+    def __init__(self) -> None:
+        # Cache: (scope, version) -> (token_str, exp_epoch)
+        self._cache: dict[tuple[str, int], tuple[str, float]] = {}
+
+    def _cache_key(self, context: dict) -> tuple[str, int]:
+        return (context.get("scope", ""), context.get("version", 0))
+
+    async def apply(self, secret: JwtSigningKeySecret, context: dict) -> dict[str, str]:  # type: ignore[override]
+        try:
+            import jwt as pyjwt
+        except ImportError as exc:
+            raise ImportError(
+                "PyJWT is required for JwtBearerApplier. "
+                "Install it with: pip install \"loom[jwt]\""
+            ) from exc
+
+        key = self._cache_key(context)
+        cached = self._cache.get(key)
+        now_ts = datetime.now(UTC).timestamp()
+        if cached is not None:
+            token_str, exp_epoch = cached
+            if now_ts < exp_epoch - 30:
+                return {"Authorization": f"Bearer {token_str}"}
+
+        # Build claims
+        ttl = int(secret.get("ttl_seconds") or 300)
+        iat = int(now_ts)
+        exp = iat + ttl
+
+        claims: dict[str, Any] = {
+            "iss": secret["issuer"],
+            "aud": secret["audience"],
+            "iat": iat,
+            "exp": exp,
+            "jti": str(uuid.uuid4()),
+        }
+        sub = secret.get("subject")
+        if sub is not None:
+            claims["sub"] = sub
+
+        algorithm: str = secret.get("algorithm", "RS256")
+        private_key_pem: str = secret["private_key_pem"]
+
+        # For HS256 the "PEM" field holds the raw shared secret bytes/str
+        if algorithm == "HS256":
+            signing_key: Any = (
+                private_key_pem.encode("utf-8")
+                if isinstance(private_key_pem, str)
+                else private_key_pem
+            )
+        else:
+            signing_key = private_key_pem
+
+        headers: dict[str, Any] = {}
+        kid = secret.get("key_id")
+        if kid:
+            headers["kid"] = kid
+
+        token_str = pyjwt.encode(
+            claims,
+            signing_key,
+            algorithm=algorithm,
+            headers=headers or None,
+        )
+
+        self._cache[key] = (token_str, float(exp))
+        return {"Authorization": f"Bearer {token_str}"}
