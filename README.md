@@ -15,12 +15,12 @@
 </p>
 
 <p align="center">
-  Loom gives you the core infrastructure every agent needs — an iterative LLM loop, tool calling, skill management, streaming, human-in-the-loop approvals, multi-provider support, persistent memory, and multi-agent coordination. Wire the pieces you need. Ignore the rest.
+  Loom is a composable Python framework for building agentic applications — with a security model that actually holds. Credentials live in encrypted stores and are resolved into transport-ready material through an applier pipeline; the agent never touches secret bytes. Human-in-the-loop is a structural primitive, not a callback. Skills are loaded on demand to keep context clean. Recurring tasks run through stateless, event-driven drivers. No decorators, no base classes, no global state — just components you wire together.
 </p>
 
 ---
 
-## Build a chat agent in 6 steps
+## Build a chat agent in 7 steps
 
 This guide takes you from a 10-line script to a fully-featured interactive chat agent — the same one in [`examples/tui`](examples/tui). Each step adds one layer.
 
@@ -190,7 +190,7 @@ tools.register(TerminalTool(ask_user))  # TerminalTool uses AskUserTool for appr
 
 ---
 
-### Step 7 — Add credentials
+### Step 6 — Add credentials
 
 Store secrets, resolve them into transport-ready headers, and gate usage with a policy — all without the agent ever touching the secret bytes.
 
@@ -243,9 +243,9 @@ resolver = CredentialResolver(store, enforcer=enforcer)
 
 ---
 
-### Step 6 — Build a chat loop
+### Step 7 — Put it all together
 
-Put it together. This is the core pattern behind the full TUI example.
+The previous steps each added one capability. Here's what a complete agent looks like when you wire everything into a single interactive chat loop — the same pattern behind the full TUI example.
 
 ```python
 import asyncio
@@ -312,7 +312,7 @@ async def main():
 asyncio.run(main())
 ```
 
-That's a fully working persistent agent with memory, skills, and human-in-the-loop support — under 60 lines.
+That's a fully working persistent agent with memory, skills, human-in-the-loop, and credentials support — under 70 lines.
 
 ---
 
@@ -332,8 +332,48 @@ The steps above cover the most common patterns. Loom has more:
 | Agent home (identity files, vault, sessions) | `loom.home` |
 | Credentials — typed secrets (8 types), 8 appliers (HTTP/SSH/AWS/JWT), resolver, 5 HITL policy modes, OS keychain backend | `loom.auth`, `loom.store.secrets`, `loom.store.keychain` |
 | SSH tool — run commands on remote hosts; auth via credential pipeline | `loom.tools.ssh` (`loom[ssh]`) |
+| Recurring tasks — cron/interval-scheduled drivers that detect events and trigger agent runs | `loom.heartbeat` |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation and [docs/API.md](docs/API.md) for the complete API reference.
+
+---
+
+## Why Loom?
+
+Most agent frameworks solve the "run a loop and call tools" problem. Loom does that too, but the design choices that matter are the ones that come up when you move past demos:
+
+**Credentials that stay secret — by design.**
+Secrets live in an encrypted store (or OS keychain). The agent never touches them. A resolver pipeline converts them into transport-ready headers, SSH connection args, or AWS signatures via typed appliers — and an optional policy layer (`NOTIFY_BEFORE`, `ONE_SHOT`, `TIME_BOXED`) gates each use through a HITL approval before the secret is released. This isn't bolted on. It's structural.
+
+**Human-in-the-loop as a first-class primitive.**
+Not a callback or a middleware. `AskUserTool` parks on an asyncio Future and emits SSE events; the same mechanism gates credential access in `PolicyEnforcer`. The agent can block mid-turn, wait for a human answer, and continue — in both terminal and web contexts.
+
+**Recurring tasks with event-driven drivers.**
+`loom.heartbeat` gives agents a cron/interval scheduler where driver code is pure: `check(state) -> (events, new_state)`. The runtime owns state persistence. When events fire, the agent runs with context. Agents can create their own heartbeats at runtime via tool call.
+
+**Skills that don't bloat the context window.**
+Skills are Markdown files. The agent sees only names and descriptions in the system prompt; full bodies are injected on demand when the agent activates one. At scale, this matters.
+
+**Composition, not convention.**
+There are no base classes to inherit, no decorators, no global registries. You construct components, configure them, and wire them together. The framework owns the loop; everything else is yours.
+
+**Honest about what it isn't — yet.** Loom is early alpha. The primitives are solid; the ecosystem is not. If you're looking for 200 pre-built integrations, look elsewhere. If you want a framework whose security model you can actually audit and extend, this is the one.
+
+---
+
+## Get Involved
+
+<p align="center"><strong>Loom is in early alpha. We need your help to make it great.</strong></p>
+
+The core primitives are in place. What's missing is breadth — more providers, more tools, more real-world stress testing. Here's where you can help most:
+
+- **Build something.** The best feedback comes from real use cases. Try it, break it, tell us what's missing.
+- **Add a provider.** Gemini, Mistral, Cohere — implement `LLMProvider.chat()` and `chat_stream()`.
+- **Add tools.** File operations, database queries, code execution sandboxes. Every `ToolHandler` is a PR.
+- **Stress the runtime.** Spin up multi-agent delegation chains and find the limits.
+- **Audit security.** Review `SkillGuard` patterns, secret redaction regexes, and path traversal prevention.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) to get started. Open an issue. Every bug report and "I tried this and it didn't work" story is valuable.
 
 ---
 
@@ -352,20 +392,6 @@ pytest          # run tests
 ruff check src/ # lint
 ruff format src/
 ```
-
----
-
-## Get Involved
-
-<p align="center"><strong>Loom is in early alpha. We need your help to make it great.</strong></p>
-
-- **Build something.** The best feedback comes from real use cases. Try it, break it, tell us what's missing.
-- **Add a provider.** Gemini, Mistral, Cohere — implement `LLMProvider.chat()` and `chat_stream()`.
-- **Add tools.** File operations, database queries, code execution sandboxes. Every `ToolHandler` is a PR.
-- **Stress the runtime.** Spin up multi-agent delegation chains and find the limits.
-- **Audit security.** Review `SkillGuard` patterns, secret redaction regexes, and path traversal prevention.
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) to get started. Open an issue. Every bug report and "I tried this and it didn't work" story is valuable.
 
 ---
 

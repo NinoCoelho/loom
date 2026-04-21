@@ -528,6 +528,180 @@ On error, `ToolResult.metadata["error_class"]` is one of `auth | timeout | trans
 
 ---
 
+## Recurring Tasks (`loom.heartbeat`)
+
+Heartbeats are scheduled background tasks composed of a **driver** (pure state-detection logic) and agent instructions. The scheduler ticks registered heartbeats on a cron or interval schedule, calls `driver.check(state)` to detect events, and invokes the agent for each event returned.
+
+### `HeartbeatDriver` (ABC)
+```python
+class HeartbeatDriver(ABC):
+    @abstractmethod
+    async def check(
+        self, state: dict[str, Any]
+    ) -> tuple[list[HeartbeatEvent], dict[str, Any]]: ...
+```
+
+Implement `check()` to inspect external state and return `(events, new_state)`. The runtime owns state persistence — drivers never read or write state themselves. An empty events list means nothing happened this tick.
+
+### `HeartbeatEvent`
+```python
+@dataclass
+class HeartbeatEvent:
+    name: str
+    payload: dict[str, Any] = {}
+    fired_at: datetime  # UTC, auto-set
+```
+
+### `HeartbeatRecord`
+```python
+@dataclass
+class HeartbeatRecord:
+    id: str           # directory name / primary key
+    name: str
+    description: str
+    schedule: str     # raw schedule string
+    enabled: bool
+    instructions: str # HEARTBEAT.md body — injected as agent system prompt
+    source_dir: Path
+    driver: HeartbeatDriver
+```
+
+### `HeartbeatRunRecord`
+```python
+@dataclass
+class HeartbeatRunRecord:
+    heartbeat_id: str
+    instance_id: str
+    state: dict[str, Any]
+    last_check: datetime | None
+    last_fired: datetime | None
+    last_error: str | None
+```
+
+### `HeartbeatRegistry`
+```python
+class HeartbeatRegistry:
+    def __init__(self, heartbeats_dir: Path, additional_dirs: list[Path] | None = None): ...
+    def scan(self) -> None: ...
+    def get(self, id: str) -> HeartbeatRecord | None: ...
+    def list(self) -> list[HeartbeatRecord]: ...
+    def register(self, record: HeartbeatRecord) -> None: ...
+    def unregister(self, id: str) -> None: ...
+    def reload(self) -> None: ...
+```
+
+### `HeartbeatStore`
+SQLite-backed runtime state, keyed by `(heartbeat_id, instance_id)`.
+
+```python
+class HeartbeatStore:
+    def __init__(self, db_path: Path): ...
+    def get_run(self, heartbeat_id: str, instance_id: str = "default") -> HeartbeatRunRecord | None: ...
+    def get_state(self, heartbeat_id: str, instance_id: str = "default") -> dict[str, Any]: ...
+    def set_state(self, heartbeat_id: str, state: dict[str, Any], instance_id: str = "default") -> None: ...
+    def touch_check(self, heartbeat_id: str, instance_id: str = "default") -> None: ...
+    def touch_fired(self, heartbeat_id: str, instance_id: str = "default", error: str | None = None) -> None: ...
+    def list_runs(self) -> list[HeartbeatRunRecord]: ...
+    def delete(self, heartbeat_id: str, instance_id: str = "default") -> None: ...
+    def delete_all(self, heartbeat_id: str) -> None: ...
+```
+
+### `HeartbeatScheduler`
+Asyncio background scheduler. Each tick checks all enabled heartbeats; for each due heartbeat it calls `driver.check(state)`, persists state, then invokes `run_fn` for every event returned. Optionally records each agent run as a `SessionStore` session.
+
+```python
+class HeartbeatScheduler:
+    def __init__(
+        self,
+        registry: HeartbeatRegistry,
+        store: HeartbeatStore,
+        run_fn: RunFn,
+        tick_interval: float = 60.0,
+        sessions: SessionStore | None = None,
+    ): ...
+
+    def start(self) -> asyncio.Task: ...
+    def stop(self) -> None: ...
+    @property
+    def running(self) -> bool: ...
+    async def trigger(self, heartbeat_id: str, instance_id: str = "default") -> list[AgentTurn]: ...
+```
+
+`RunFn = Callable[[str, list[ChatMessage]], Awaitable[AgentTurn]]`
+
+### `HeartbeatManager`
+CRUD operations on disk + registry sync. Used by `HeartbeatToolHandler`.
+
+```python
+class HeartbeatManager:
+    def __init__(self, registry: HeartbeatRegistry, store: HeartbeatStore): ...
+    def invoke(self, args: dict) -> str: ...
+```
+
+Actions: `create`, `delete`, `enable`, `disable`, `list`.
+
+### `HeartbeatToolHandler`
+Exposes `HeartbeatManager` as the `manage_heartbeat` tool so the agent can create and manage its own recurring tasks at runtime.
+
+```python
+class HeartbeatToolHandler(ToolHandler):
+    def __init__(self, manager: HeartbeatManager): ...
+```
+
+Tool name: `manage_heartbeat`. Parameters: `action` (required), `name`, `description`, `schedule`, `instructions`, `driver_code`.
+
+### Schedule format
+
+`parse_schedule(expr: str) -> Schedule` accepts three forms:
+
+| Form | Examples |
+|---|---|
+| Natural language | `"every 5 minutes"`, `"every hour"`, `"every 2 days"` |
+| Cron shorthands | `@daily`, `@hourly`, `@weekly`, `@monthly`, `@yearly` |
+| 5-field cron | `"*/5 * * * *"`, `"0 9 * * 1-5"` |
+
+### `load_heartbeat(heartbeat_dir: Path) -> HeartbeatRecord`
+Load a heartbeat from a directory containing `HEARTBEAT.md` and `driver.py`. Raises `FileNotFoundError` if either file is absent, `ValueError` if metadata is invalid or the directory name doesn't match `name` in frontmatter.
+
+### `make_run_fn(agent: Agent) -> RunFn`
+Build a `RunFn` from an existing `Agent`, reusing its provider and tool registry but overriding the system prompt with the heartbeat's instructions.
+
+### Heartbeat file layout
+
+```
+heartbeats/
+  my-monitor/
+    HEARTBEAT.md   # frontmatter metadata + agent instructions (body)
+    driver.py      # must define class Driver(HeartbeatDriver)
+```
+
+**`HEARTBEAT.md`:**
+```markdown
+---
+name: my-monitor
+description: Alert when queue depth exceeds threshold
+schedule: "every 5 minutes"
+enabled: true
+---
+
+When you receive a queue_depth_exceeded event, log the depth to memory
+and call the notify tool with a short summary.
+```
+
+**`driver.py`:**
+```python
+from loom.heartbeat import HeartbeatDriver, HeartbeatEvent
+
+class Driver(HeartbeatDriver):
+    async def check(self, state: dict) -> tuple[list[HeartbeatEvent], dict]:
+        depth = await fetch_queue_depth()  # your detection logic
+        if depth > state.get("threshold", 100):
+            return [HeartbeatEvent("queue_depth_exceeded", {"depth": depth})], state
+        return [], state
+```
+
+---
+
 ## Server (`loom.server`)
 
 ### `create_app(...)`

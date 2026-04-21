@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `loom.heartbeat` subpackage: file-based recurring task scheduler. Each heartbeat is a directory with a `HEARTBEAT.md` (frontmatter metadata + agent instructions) and a `driver.py` (a `Driver(HeartbeatDriver)` class that implements `check(state) -> (events, new_state)`). `HeartbeatScheduler` runs as a background asyncio task, ticks enabled heartbeats on their schedule, and invokes the agent once per returned event. State is persisted between ticks in SQLite via `HeartbeatStore` (WAL mode, keyed by `(heartbeat_id, instance_id)`). `HeartbeatToolHandler` exposes a `manage_heartbeat` tool so agents can create and manage their own recurring tasks at runtime. Schedules support natural language (`"every 5 minutes"`), cron shorthands (`@daily`, `@hourly`), and 5-field cron. Optional `SessionStore` integration records each agent invocation as a titled session for observability.
+
 - `loom.mcp` subpackage: MCP (Model Context Protocol) client integration. `McpServerConfig`, `McpClient` (async context manager for stdio/SSE transports), and `McpToolHandler` let agents register and call tools exposed by external MCP servers.
 - New optional extra: `pip install "loom[mcp]"` (depends on the official `mcp` SDK).
 

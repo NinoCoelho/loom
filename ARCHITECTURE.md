@@ -387,6 +387,41 @@ scope
 
 Requires `loom[ssh]`.
 
+### 16. Heartbeat Scheduler (`loom.heartbeat`)
+
+Heartbeats are recurring scheduled tasks. Each one consists of two files in its own directory: `HEARTBEAT.md` (YAML frontmatter with `name`, `description`, `schedule`, `enabled` + a Markdown body used as the agent's system prompt) and `driver.py` (a class `Driver(HeartbeatDriver)` that implements `check(state) -> (events, new_state)`).
+
+**Key design choices:**
+- **Drivers are stateless pure functions.** They receive state-in and return state-out; the runtime persists state between ticks via `HeartbeatStore` (SQLite, WAL mode).
+- **Events drive agent invocations.** When `driver.check()` returns a non-empty events list, the scheduler calls `run_fn(instructions, [event_message])` once per event. The agent runs with the heartbeat's instructions as its system prompt and the event summary as the user message.
+- **Multi-instance support.** State is keyed by `(heartbeat_id, instance_id)`, so the same driver package can run as independent instances without shared state.
+- **SessionStore integration (optional).** When a `SessionStore` is provided, each agent invocation is persisted as a titled session for observability.
+
+**Components:**
+
+| Class | Role |
+|---|---|
+| `HeartbeatDriver` | ABC — implement `check(state) -> (events, new_state)` |
+| `HeartbeatRegistry` | In-memory index; scans directories for `HEARTBEAT.md` files |
+| `HeartbeatStore` | SQLite state persistence keyed by `(heartbeat_id, instance_id)` |
+| `HeartbeatScheduler` | Asyncio background loop; ticks, fires, invokes agent |
+| `HeartbeatManager` | Disk CRUD (create/delete/enable/disable/list) + registry sync |
+| `HeartbeatToolHandler` | `manage_heartbeat` tool — lets the agent manage heartbeats at runtime |
+
+**Schedule formats:** natural language (`"every 5 minutes"`), cron shorthands (`@daily`, `@hourly`), or 5-field cron (`"0 9 * * 1-5"`).
+
+**Wire-up example:**
+```python
+from loom.heartbeat import HeartbeatRegistry, HeartbeatScheduler, HeartbeatStore, make_run_fn
+
+registry = HeartbeatRegistry(heartbeats_dir=Path(".myapp/heartbeats"))
+registry.scan()
+
+store = HeartbeatStore(db_path=Path(".myapp/heartbeats.db"))
+scheduler = HeartbeatScheduler(registry, store, run_fn=make_run_fn(agent))
+scheduler.start()  # background asyncio.Task
+```
+
 ---
 
 ## Data Flow
