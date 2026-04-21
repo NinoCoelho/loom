@@ -41,8 +41,13 @@ class SessionStore:
             )
         """)
         self._db.commit()
+        # Idempotent migration: add context column if missing (for pre-existing DBs)
+        cols = {row[1] for row in self._db.execute("PRAGMA table_info(sessions)").fetchall()}
+        if "context" not in cols:
+            self._db.execute("ALTER TABLE sessions ADD COLUMN context TEXT")
+            self._db.commit()
 
-    def get_or_create(self, session_id: str, title: str | None = None) -> dict[str, Any]:
+    def get_or_create(self, session_id: str, title: str | None = None, context: str | None = None) -> dict[str, Any]:
         row = self._db.execute(
             "SELECT id, title, context, pending_question, model, input_tokens, output_tokens, tool_call_count FROM sessions WHERE id = ?",
             (session_id,),
@@ -51,7 +56,7 @@ class SessionStore:
             return {
                 "id": row[0],
                 "title": row[1],
-                "context": json.loads(row[2]) if row[2] else None,
+                "context": row[2],
                 "pending_question": row[3],
                 "model": row[4],
                 "input_tokens": row[5],
@@ -59,11 +64,11 @@ class SessionStore:
                 "tool_call_count": row[7],
             }
         self._db.execute(
-            "INSERT INTO sessions (id, title) VALUES (?, ?)",
-            (session_id, title),
+            "INSERT INTO sessions (id, title, context) VALUES (?, ?, ?)",
+            (session_id, title, context),
         )
         self._db.commit()
-        return {"id": session_id, "title": title}
+        return {"id": session_id, "title": title, "context": context}
 
     def get_history(self, session_id: str) -> list[ChatMessage]:
         rows = self._db.execute(
@@ -121,20 +126,33 @@ class SessionStore:
         )
         self._db.commit()
 
+    def set_context(self, session_id: str, context: str | None) -> None:
+        self._db.execute(
+            "UPDATE sessions SET context = ? WHERE id = ?",
+            (context, session_id),
+        )
+        self._db.commit()
+
+    def reset(self, session_id: str) -> None:
+        """Clear message history for a session; preserves title, context, and usage."""
+        self.replace_history(session_id, [])
+        self.set_pending_question(session_id, None)
+
     def list_sessions(self) -> list[dict[str, Any]]:
         rows = self._db.execute(
-            "SELECT id, title, created_at, updated_at, model, input_tokens, output_tokens, tool_call_count FROM sessions ORDER BY updated_at DESC"
+            "SELECT id, title, context, created_at, updated_at, model, input_tokens, output_tokens, tool_call_count FROM sessions ORDER BY updated_at DESC"
         ).fetchall()
         return [
             {
                 "id": r[0],
                 "title": r[1],
-                "created_at": r[2],
-                "updated_at": r[3],
-                "model": r[4],
-                "input_tokens": r[5],
-                "output_tokens": r[6],
-                "tool_call_count": r[7],
+                "context": r[2],
+                "created_at": r[3],
+                "updated_at": r[4],
+                "model": r[5],
+                "input_tokens": r[6],
+                "output_tokens": r[7],
+                "tool_call_count": r[8],
             }
             for r in rows
         ]

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import inspect
 import json
-from collections.abc import AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
 from loom.errors import LLMTransportError
@@ -22,6 +23,8 @@ from loom.types import (
     ChatMessage,
     ChatResponse,
     ContentDeltaEvent,
+    DoneEvent,
+    ErrorEvent,
     LimitReachedEvent,
     Role,
     StopReason,
@@ -32,6 +35,15 @@ from loom.types import (
     ToolSpec,
     Usage,
 )
+
+
+_DEFAULT_AFFIRMATIVES = frozenset({
+    "yes", "y", "ok", "okay", "sure", "correct", "right", "yeah", "yep",
+    "go ahead", "proceed", "continue", "please", "do it",
+})
+_DEFAULT_NEGATIVES = frozenset({
+    "no", "n", "nope", "cancel", "stop", "don't", "dont", "negative",
+})
 
 if TYPE_CHECKING:
     from loom.home import AgentHome
@@ -74,6 +86,13 @@ class AgentConfig:
         on_after_turn: Callable[[AgentTurn], None] | None = None,
         on_tool_result: Callable[[ToolCall, str], None] | None = None,
         extra_tools: list[ToolHandler] | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+        choose_model: Callable[[list[ChatMessage]], str | None] | None = None,
+        limit_message_builder: Callable[[int], str] | None = None,
+        affirmatives: frozenset[str] | set[str] | None = None,
+        negatives: frozenset[str] | set[str] | None = None,
+        serialize_event: Callable[[StreamEvent], Any] | None = None,
+        before_llm_call: Callable[[list[ChatMessage]], list[ChatMessage] | Awaitable[list[ChatMessage]]] | None = None,
     ) -> None:
         self.max_iterations = max_iterations
         self.model = model
@@ -82,6 +101,21 @@ class AgentConfig:
         self.on_after_turn = on_after_turn
         self.on_tool_result = on_tool_result
         self.extra_tools = extra_tools or []
+        # #4: fine-grained trace hook called as on_event(kind, payload)
+        # for every notable step (llm_call, tool_exec, error, ...).
+        self.on_event = on_event
+        # #5: router hook — pick a model per turn from the messages.
+        self.choose_model = choose_model
+        # #7: override the reply emitted when max_iterations is hit.
+        self.limit_message_builder = limit_message_builder
+        # #8: extend or replace the yes/no vocab.
+        self.affirmatives = frozenset(affirmatives) if affirmatives is not None else _DEFAULT_AFFIRMATIVES
+        self.negatives = frozenset(negatives) if negatives is not None else _DEFAULT_NEGATIVES
+        # #9: wire a custom serializer for stream events (e.g. to emit
+        # dict-based SSE instead of Pydantic instances).
+        self.serialize_event = serialize_event
+        # #11: rewrite the message list at the top of every loop iteration.
+        self.before_llm_call = before_llm_call
 
 
 from loom.tools.base import ToolHandler
@@ -182,13 +216,21 @@ class Agent:
 
     def _annotate_short_reply(self, user_text: str) -> str | None:
         stripped = user_text.strip().lower()
-        affirmatives = {"yes", "y", "ok", "okay", "sure", "correct", "right", "yeah", "yep", "go ahead", "proceed", "continue", "please", "do it"}
-        negatives = {"no", "n", "nope", "cancel", "stop", "don't", "dont", "negative"}
-        if stripped in affirmatives and self._pending_question:
+        if stripped in self._config.affirmatives and self._pending_question:
             return f"{user_text} (affirmative answer to: \"{self._pending_question}\")"
-        if stripped in negatives and self._pending_question:
+        if stripped in self._config.negatives and self._pending_question:
             return f"{user_text} (negative answer to: \"{self._pending_question}\")"
         return None
+
+    def _emit(self, kind: str, payload: dict[str, Any] | None = None) -> None:
+        """Fire the optional on_event trace hook. Swallow handler errors
+        so tracing never breaks the turn."""
+        if self._config.on_event is None:
+            return
+        try:
+            self._config.on_event(kind, payload or {})
+        except Exception:
+            pass
 
     async def _call_llm(
         self,
@@ -232,6 +274,7 @@ class Agent:
         self,
         messages: list[ChatMessage],
         context: dict[str, Any] | None = None,
+        model_id: str | None = None,
     ) -> AgentTurn:
         if self._config.on_before_turn:
             messages = self._config.on_before_turn(messages)
@@ -244,9 +287,17 @@ class Agent:
         system_prompt = self._build_system_prompt(context)
         all_messages = [ChatMessage(role=Role.SYSTEM, content=system_prompt)] + messages
 
-        model_id = self._config.model
+        # Precedence: explicit per-call arg > choose_model hook > config default.
+        if model_id is None and self._config.choose_model is not None:
+            try:
+                model_id = self._config.choose_model(messages)
+            except Exception:
+                model_id = None
+        if model_id is None:
+            model_id = self._config.model
         provider, upstream_model = self._resolve_provider(model_id)
         model_name = upstream_model or model_id or ""
+        self._emit("turn_start", {"model": model_name, "num_messages": len(messages)})
         tools = self._build_tools()
 
         skills_touched: list[str] = []
@@ -255,6 +306,28 @@ class Agent:
         total_tool_calls = 0
 
         for iteration in range(self._config.max_iterations):
+            if self._config.before_llm_call is not None:
+                try:
+                    result = self._config.before_llm_call(all_messages)
+                    if inspect.isawaitable(result):
+                        result = await result
+                    if result is not None:
+                        all_messages = result
+                except Exception as exc:
+                    turn = AgentTurn(
+                        reply=f"[before_llm_call hook error: {exc}]",
+                        iterations=iteration,
+                        skills_touched=skills_touched,
+                        messages=all_messages,
+                        input_tokens=total_input,
+                        output_tokens=total_output,
+                        tool_calls=total_tool_calls,
+                        model=model_name,
+                    )
+                    if self._config.on_after_turn:
+                        self._config.on_after_turn(turn)
+                    return turn
+
             response: ChatResponse = await self._call_llm(
                 provider, all_messages, tools, upstream_model
             )
@@ -308,8 +381,13 @@ class Agent:
                     )
                 )
 
+        limit_reply = (
+            self._config.limit_message_builder(self._config.max_iterations)
+            if self._config.limit_message_builder
+            else "[iteration limit reached]"
+        )
         turn = AgentTurn(
-            reply="[iteration limit reached]",
+            reply=limit_reply,
             iterations=self._config.max_iterations,
             skills_touched=skills_touched,
             messages=all_messages,
@@ -326,7 +404,8 @@ class Agent:
         self,
         messages: list[ChatMessage],
         context: dict[str, Any] | None = None,
-    ) -> AsyncIterator[StreamEvent]:
+        model_id: str | None = None,
+    ) -> AsyncIterator[Any]:
         if self._config.on_before_turn:
             messages = self._config.on_before_turn(messages)
 
@@ -338,10 +417,23 @@ class Agent:
         system_prompt = self._build_system_prompt(context)
         all_messages = [ChatMessage(role=Role.SYSTEM, content=system_prompt)] + messages
 
-        model_id = self._config.model
+        if model_id is None and self._config.choose_model is not None:
+            try:
+                model_id = self._config.choose_model(messages)
+            except Exception:
+                model_id = None
+        if model_id is None:
+            model_id = self._config.model
         provider, upstream_model = self._resolve_provider(model_id)
         model_name = upstream_model or model_id or ""
         tools = self._build_tools()
+        self._emit("stream_start", {"model": model_name, "num_messages": len(messages)})
+
+        # #9 — apply custom serializer to every outbound event.
+        serialize = self._config.serialize_event
+
+        def _wrap(ev: Any) -> Any:
+            return serialize(ev) if serialize is not None else ev
 
         skills_touched: list[str] = []
         total_input = 0
@@ -349,44 +441,94 @@ class Agent:
         total_tool_calls = 0
 
         for iteration in range(self._config.max_iterations):
-            stream: AsyncIterator[StreamEvent] = await self._call_llm_stream(
-                provider, all_messages, tools, upstream_model
-            )
+            if self._config.before_llm_call is not None:
+                try:
+                    result = self._config.before_llm_call(all_messages)
+                    if inspect.isawaitable(result):
+                        result = await result
+                    if result is not None:
+                        all_messages = result
+                except Exception as exc:
+                    err_ev = ErrorEvent(
+                        message=str(exc),
+                        reason="hook_error",
+                    )
+                    yield _wrap(err_ev)
+                    yield _wrap(DoneEvent(context={"model": model_name, "iterations": iteration}))
+                    return
 
             content_parts: list[str] = []
             tool_call_parts: dict[int, dict[str, Any]] = {}
             stop_reason: StopReason = StopReason.UNKNOWN
             has_forwarded = False
 
-            async for event in stream:
-                if isinstance(event, ContentDeltaEvent):
-                    if not has_forwarded:
-                        has_forwarded = True
-                    content_parts.append(event.delta)
-                    yield ContentDeltaEvent(delta=event.delta)
-                elif isinstance(event, StreamEvent):
-                    if event.type == "tool_call_delta":
-                        idx = event.index
-                        if idx not in tool_call_parts:
-                            tool_call_parts[idx] = {"id": event.id, "name": event.name, "arguments": ""}
-                        if event.id:
-                            tool_call_parts[idx]["id"] = event.id
-                        if event.name:
-                            tool_call_parts[idx]["name"] = event.name
-                        if hasattr(event, "arguments_delta") and event.arguments_delta:
-                            tool_call_parts[idx]["arguments"] += event.arguments_delta
-                        yield event
-                    elif event.type == "usage":
-                        total_input += event.usage.input_tokens
-                        total_output += event.usage.output_tokens
-                    elif event.type == "stop":
-                        stop_reason = event.stop_reason
+            try:
+                # #2 — with_retry wraps stream *creation*; if creation
+                # fails after N attempts we surface an ErrorEvent rather
+                # than propagate (caller may still be iterating).
+                stream: AsyncIterator[StreamEvent] = await self._call_llm_stream(
+                    provider, all_messages, tools, upstream_model
+                )
+            except Exception as exc:
+                from loom.errors import classify_api_error
+                cls = classify_api_error(exc)
+                err_ev = ErrorEvent(
+                    message=str(exc),
+                    reason=cls.reason.value if hasattr(cls.reason, "value") else str(cls.reason),
+                    status_code=cls.status_code,
+                    retryable=cls.retryable,
+                )
+                self._emit("stream_error", {"phase": "create", "message": str(exc)})
+                yield _wrap(err_ev)
+                yield _wrap(DoneEvent(context={"model": model_name, "iterations": iteration}))
+                return
+
+            try:
+                async for event in stream:
+                    if isinstance(event, ContentDeltaEvent):
+                        if not has_forwarded:
+                            has_forwarded = True
+                        content_parts.append(event.delta)
+                        yield _wrap(ContentDeltaEvent(delta=event.delta))
+                    elif isinstance(event, StreamEvent):
+                        if event.type == "tool_call_delta":
+                            idx = event.index
+                            if idx not in tool_call_parts:
+                                tool_call_parts[idx] = {"id": event.id, "name": event.name, "arguments": ""}
+                            if event.id:
+                                tool_call_parts[idx]["id"] = event.id
+                            if event.name:
+                                tool_call_parts[idx]["name"] = event.name
+                            if hasattr(event, "arguments_delta") and event.arguments_delta:
+                                tool_call_parts[idx]["arguments"] += event.arguments_delta
+                            yield _wrap(event)
+                        elif event.type == "usage":
+                            total_input += event.usage.input_tokens
+                            total_output += event.usage.output_tokens
+                        elif event.type == "stop":
+                            stop_reason = event.stop_reason
+            except Exception as exc:
+                # Mid-stream failure: can't retry without replaying
+                # partial assistant output. Surface as ErrorEvent + Done
+                # so the caller can tear down cleanly.
+                from loom.errors import classify_api_error
+                cls = classify_api_error(exc)
+                err_ev = ErrorEvent(
+                    message=str(exc),
+                    reason=cls.reason.value if hasattr(cls.reason, "value") else str(cls.reason),
+                    status_code=cls.status_code,
+                    retryable=cls.retryable,
+                )
+                self._emit("stream_error", {"phase": "iterate", "forwarded": has_forwarded, "message": str(exc)})
+                yield _wrap(err_ev)
+                yield _wrap(DoneEvent(context={"model": model_name, "iterations": iteration, "partial": has_forwarded}))
+                return
 
             if stop_reason not in (StopReason.TOOL_USE,) or not tool_call_parts:
                 reply = "".join(content_parts)
                 self._pending_question = self._extract_pending_question(reply)
 
-                yield ContentDeltaEvent(delta="")
+                yield _wrap(ContentDeltaEvent(delta=""))
 
                 turn = AgentTurn(
                     reply=reply,
@@ -400,6 +542,15 @@ class Agent:
                 )
                 if self._config.on_after_turn:
                     self._config.on_after_turn(turn)
+                final_assistant = ChatMessage(role=Role.ASSISTANT, content=reply)
+                yield _wrap(DoneEvent(context={
+                    "model": model_name,
+                    "iterations": iteration + 1,
+                    "input_tokens": total_input,
+                    "output_tokens": total_output,
+                    "tool_calls": total_tool_calls,
+                    "messages": [m.model_dump() for m in all_messages + [final_assistant]],
+                }))
                 return
 
             assembled_tcs: list[ToolCall] = []
@@ -420,9 +571,9 @@ class Agent:
 
             for tc in assembled_tcs:
                 total_tool_calls += 1
-                yield ToolExecStartEvent(
+                yield _wrap(ToolExecStartEvent(
                     tool_call_id=tc.id, name=tc.name, arguments=tc.arguments
-                )
+                ))
                 is_error = False
                 if tc.name == "activate_skill" and self._skills:
                     args = json.loads(tc.arguments) if tc.arguments else {}
@@ -437,12 +588,12 @@ class Agent:
                 else:
                     result_text, is_error = await self._dispatch_tool_result(tc)
 
-                yield ToolExecResultEvent(
+                yield _wrap(ToolExecResultEvent(
                     tool_call_id=tc.id,
                     name=tc.name,
                     text=result_text,
                     is_error=is_error,
-                )
+                ))
 
                 all_messages.append(ChatMessage(
                     role=Role.TOOL,
@@ -451,4 +602,20 @@ class Agent:
                     name=tc.name,
                 ))
 
-        yield LimitReachedEvent(iterations=self._config.max_iterations)
+        limit_reply = (
+            self._config.limit_message_builder(self._config.max_iterations)
+            if self._config.limit_message_builder
+            else "[iteration limit reached]"
+        )
+        yield _wrap(ContentDeltaEvent(delta=limit_reply))
+        final_assistant = ChatMessage(role=Role.ASSISTANT, content=limit_reply)
+        yield _wrap(LimitReachedEvent(iterations=self._config.max_iterations))
+        yield _wrap(DoneEvent(context={
+            "model": model_name,
+            "iterations": self._config.max_iterations,
+            "input_tokens": total_input,
+            "output_tokens": total_output,
+            "tool_calls": total_tool_calls,
+            "messages": [m.model_dump() for m in all_messages + [final_assistant]],
+            "limit_reached": True,
+        }))

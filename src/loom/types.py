@@ -34,8 +34,17 @@ class ToolSpec(BaseModel):
 
 
 class Usage(BaseModel):
-    input_tokens: int
-    output_tokens: int
+    """Token usage for one provider round-trip.
+
+    ``cache_read_tokens`` / ``cache_write_tokens`` are optional fields
+    reported by providers that support prompt caching (Anthropic native,
+    Anthropic-on-Bedrock, some OpenRouter proxies). Providers that
+    don't report caching leave them at 0."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 class ChatMessage(BaseModel):
@@ -103,11 +112,28 @@ class LimitReachedEvent(BaseModel):
 
 
 class ErrorEvent(BaseModel):
-    """Emitted for non-fatal turn-level errors surfaced to consumers."""
+    """Emitted for non-fatal turn-level errors surfaced to consumers.
+
+    ``status_code`` is the upstream HTTP status when known (e.g. 429, 503).
+    ``retryable`` flags transient failures callers may choose to retry;
+    it's advisory — the agent itself does not retry after emitting this.
+    """
 
     type: Literal["error"] = "error"
     message: str
     reason: str | None = None
+    status_code: int | None = None
+    retryable: bool = False
+
+
+class DoneEvent(BaseModel):
+    """Terminal marker for a streaming turn. Carries a freeform
+    ``context`` bag so embedders can piggyback session-scoped metadata
+    (e.g. sid, routing decisions, token totals) onto the end of a stream
+    without inventing a sidecar channel."""
+
+    type: Literal["done"] = "done"
+    context: dict = {}
 
 
 StreamEvent = Union[
@@ -119,4 +145,5 @@ StreamEvent = Union[
     ToolExecResultEvent,
     LimitReachedEvent,
     ErrorEvent,
+    DoneEvent,
 ]
