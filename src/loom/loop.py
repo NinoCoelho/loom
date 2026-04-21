@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import inspect
 import json
-from collections.abc import AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
 from loom.errors import LLMTransportError
@@ -91,6 +92,7 @@ class AgentConfig:
         affirmatives: frozenset[str] | set[str] | None = None,
         negatives: frozenset[str] | set[str] | None = None,
         serialize_event: Callable[[StreamEvent], Any] | None = None,
+        before_llm_call: Callable[[list[ChatMessage]], list[ChatMessage] | Awaitable[list[ChatMessage]]] | None = None,
     ) -> None:
         self.max_iterations = max_iterations
         self.model = model
@@ -112,6 +114,8 @@ class AgentConfig:
         # #9: wire a custom serializer for stream events (e.g. to emit
         # dict-based SSE instead of Pydantic instances).
         self.serialize_event = serialize_event
+        # #11: rewrite the message list at the top of every loop iteration.
+        self.before_llm_call = before_llm_call
 
 
 from loom.tools.base import ToolHandler
@@ -302,6 +306,28 @@ class Agent:
         total_tool_calls = 0
 
         for iteration in range(self._config.max_iterations):
+            if self._config.before_llm_call is not None:
+                try:
+                    result = self._config.before_llm_call(all_messages)
+                    if inspect.isawaitable(result):
+                        result = await result
+                    if result is not None:
+                        all_messages = result
+                except Exception as exc:
+                    turn = AgentTurn(
+                        reply=f"[before_llm_call hook error: {exc}]",
+                        iterations=iteration,
+                        skills_touched=skills_touched,
+                        messages=all_messages,
+                        input_tokens=total_input,
+                        output_tokens=total_output,
+                        tool_calls=total_tool_calls,
+                        model=model_name,
+                    )
+                    if self._config.on_after_turn:
+                        self._config.on_after_turn(turn)
+                    return turn
+
             response: ChatResponse = await self._call_llm(
                 provider, all_messages, tools, upstream_model
             )
@@ -415,6 +441,22 @@ class Agent:
         total_tool_calls = 0
 
         for iteration in range(self._config.max_iterations):
+            if self._config.before_llm_call is not None:
+                try:
+                    result = self._config.before_llm_call(all_messages)
+                    if inspect.isawaitable(result):
+                        result = await result
+                    if result is not None:
+                        all_messages = result
+                except Exception as exc:
+                    err_ev = ErrorEvent(
+                        message=str(exc),
+                        reason="hook_error",
+                    )
+                    yield _wrap(err_ev)
+                    yield _wrap(DoneEvent(context={"model": model_name, "iterations": iteration}))
+                    return
+
             content_parts: list[str] = []
             tool_call_parts: dict[int, dict[str, Any]] = {}
             stop_reason: StopReason = StopReason.UNKNOWN

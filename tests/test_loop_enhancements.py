@@ -11,6 +11,7 @@ import pytest
 from loom.errors import LLMTransportError
 from loom.llm.base import LLMProvider
 from loom.loop import Agent, AgentConfig
+from loom.tools.base import ToolHandler, ToolResult
 from loom.tools.registry import ToolRegistry
 from loom.types import (
     ChatMessage,
@@ -22,6 +23,8 @@ from loom.types import (
     StopEvent,
     StopReason,
     StreamEvent,
+    ToolCallDeltaEvent,
+    ToolSpec,
     Usage,
     UsageEvent,
 )
@@ -308,3 +311,141 @@ async def test_stream_creation_failure_emits_error_then_done():
     assert kinds[-1] == "done"
     err = events[0]
     assert err.status_code == 401
+
+
+# ── #11 before_llm_call hook ────────────────────────────────────────────
+
+
+class _CapturingProvider(_ScriptedProvider):
+    """Records the messages list passed to each chat_stream call."""
+
+    def __init__(self, turns: list[list[StreamEvent]]) -> None:
+        super().__init__(turns)
+        self.calls: list[list[ChatMessage]] = []
+
+    async def chat_stream(
+        self, messages, *, tools=None, model=None
+    ) -> AsyncIterator[StreamEvent]:
+        self.calls.append(list(messages))
+        async for e in super().chat_stream(messages, tools=tools, model=model):
+            yield e
+
+
+class _NoopTool(ToolHandler):
+    @property
+    def tool(self) -> ToolSpec:
+        return ToolSpec(
+            name="noop",
+            description="does nothing",
+            parameters={"type": "object", "properties": {}},
+        )
+
+    async def invoke(self, arguments: dict) -> ToolResult:
+        return ToolResult(text="ok")
+
+
+def _tool_turn(tc_id: str, name: str, args: str) -> list[StreamEvent]:
+    return [
+        ToolCallDeltaEvent(index=0, id=tc_id, name=name, arguments_delta=args),
+        UsageEvent(usage=Usage(input_tokens=5, output_tokens=2)),
+        StopEvent(stop_reason=StopReason.TOOL_USE),
+    ]
+
+
+async def test_before_llm_call_hook_rewrites_messages():
+    """Sync hook can rewrite the message list; provider receives the modified list."""
+    provider = _CapturingProvider([_final_turn("hi")])
+
+    def hook(msgs: list[ChatMessage]) -> list[ChatMessage]:
+        # Replace system message content with a marker
+        return [
+            ChatMessage(role=m.role, content="REWRITTEN" if m.role == Role.SYSTEM else m.content)
+            for m in msgs
+        ]
+
+    agent = Agent(
+        provider=provider,
+        tool_registry=ToolRegistry(),
+        config=AgentConfig(before_llm_call=hook),
+    )
+    async for _ in agent.run_turn_stream([ChatMessage(role=Role.USER, content="go")]):
+        pass
+
+    assert len(provider.calls) == 1
+    sys_msg = next(m for m in provider.calls[0] if m.role == Role.SYSTEM)
+    assert sys_msg.content == "REWRITTEN"
+
+
+async def test_before_llm_call_hook_async():
+    """Async hook is awaited correctly and its result is used."""
+    provider = _CapturingProvider([_final_turn("hi")])
+
+    async def async_hook(msgs: list[ChatMessage]) -> list[ChatMessage]:
+        return [
+            ChatMessage(role=m.role, content="ASYNC_REWRITTEN" if m.role == Role.SYSTEM else m.content)
+            for m in msgs
+        ]
+
+    agent = Agent(
+        provider=provider,
+        tool_registry=ToolRegistry(),
+        config=AgentConfig(before_llm_call=async_hook),
+    )
+    async for _ in agent.run_turn_stream([ChatMessage(role=Role.USER, content="go")]):
+        pass
+
+    assert len(provider.calls) == 1
+    sys_msg = next(m for m in provider.calls[0] if m.role == Role.SYSTEM)
+    assert sys_msg.content == "ASYNC_REWRITTEN"
+
+
+async def test_before_llm_call_hook_called_each_iteration():
+    """Hook is called once per loop iteration (tool-call turn + final turn = 2 calls)."""
+    tools = ToolRegistry()
+    tools.register(_NoopTool())
+
+    provider = _CapturingProvider([
+        _tool_turn("tc1", "noop", "{}"),
+        _final_turn("done"),
+    ])
+
+    call_count = 0
+
+    def hook(msgs: list[ChatMessage]) -> list[ChatMessage]:
+        nonlocal call_count
+        call_count += 1
+        return msgs
+
+    agent = Agent(
+        provider=provider,
+        tool_registry=tools,
+        config=AgentConfig(before_llm_call=hook),
+    )
+    async for _ in agent.run_turn_stream([ChatMessage(role=Role.USER, content="go")]):
+        pass
+
+    assert call_count == 2
+    assert len(provider.calls) == 2
+
+
+async def test_before_llm_call_hook_error_emits_error_done():
+    """A raising hook surfaces as ErrorEvent then DoneEvent; no uncaught exception."""
+    provider = _CapturingProvider([_final_turn("hi")])
+
+    def bad_hook(msgs: list[ChatMessage]) -> list[ChatMessage]:
+        raise ValueError("hook exploded")
+
+    agent = Agent(
+        provider=provider,
+        tool_registry=ToolRegistry(),
+        config=AgentConfig(before_llm_call=bad_hook),
+    )
+
+    events = [e async for e in agent.run_turn_stream([ChatMessage(role=Role.USER, content="go")])]
+    kinds = [e.type for e in events]
+    assert "error" in kinds
+    assert kinds[-1] == "done"
+    err = next(e for e in events if e.type == "error")
+    assert "hook exploded" in err.message
+    # Provider should not have been called since hook failed first
+    assert len(provider.calls) == 0
