@@ -10,16 +10,23 @@ The resolver is the single entry-point for consuming credentials::
 
     headers = await resolver.resolve_for("prod-oic", transport="http")
 
+Phase B adds an optional ``enforcer`` parameter.  When provided, the enforcer
+gates credential access *before* the secret is fetched.  Callers that omit
+``enforcer`` retain identical Phase A behaviour — fully backward compatible.
+
 See docs/rfcs/0002-credentials-and-appliers.md for design rationale.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loom.auth.appliers import Applier
 from loom.auth.errors import NoApplierError, ScopeNotFoundError
 from loom.store.secrets import SecretStore
+
+if TYPE_CHECKING:
+    from loom.auth.enforcer import PolicyEnforcer
 
 
 class CredentialResolver:
@@ -29,6 +36,12 @@ class CredentialResolver:
         store: A ``SecretStore`` instance.
         appliers: Initial applier mapping ``(secret_type, transport) -> Applier``.
             Additional appliers can be added via ``register()``.
+        enforcer: Optional :class:`~loom.auth.enforcer.PolicyEnforcer`.  When
+            supplied, ``gate(scope, context)`` is called before the secret is
+            fetched.  A denied gate raises
+            :class:`~loom.auth.enforcer.CredentialDenied`.  If ``None``
+            (default), gating is skipped entirely — Phase A behaviour is
+            preserved.
 
     Usage::
 
@@ -42,9 +55,12 @@ class CredentialResolver:
         self,
         store: SecretStore,
         appliers: dict[tuple[str, str], Applier] | None = None,
+        *,
+        enforcer: PolicyEnforcer | None = None,
     ) -> None:
         self._store = store
         self._appliers: dict[tuple[str, str], Applier] = dict(appliers or {})
+        self._enforcer = enforcer
 
     def register(self, applier: Applier, *, transport: str) -> None:
         """Register *applier* for its ``secret_type`` on *transport*.
@@ -62,9 +78,14 @@ class CredentialResolver:
     ) -> Any:
         """Resolve credentials for *scope* on *transport*.
 
-        1. Fetches the secret from the store.
-        2. Selects the applier registered for ``(secret.type, transport)``.
-        3. Calls ``applier.apply(secret, context)`` and returns the result.
+        1. Gates via ``enforcer.gate(scope, context)`` if an enforcer is set.
+        2. Fetches the secret from the store.
+        3. Selects the applier registered for ``(secret.type, transport)``.
+        4. Calls ``applier.apply(secret, context)`` and returns the result.
+
+        The :class:`~loom.auth.enforcer.GateDecision` from step 1 is merged
+        into the applier context as ``"_gate_decision"`` so appliers can
+        inspect ``prompt_resolution`` when needed.
 
         Args:
             scope: The loom scope name (e.g. ``"prod-oic"``).
@@ -73,10 +94,18 @@ class CredentialResolver:
                 Merged with ``{"scope": scope}`` before dispatch.
 
         Raises:
+            CredentialDenied: If the enforcer denies access.
             ScopeNotFoundError: If *scope* is absent from the store.
             NoApplierError: If no applier is registered for the resolved
                 ``(secret_type, transport)`` pair.
         """
+        merged_context: dict = {"scope": scope, **(context or {})}
+
+        # Phase B gate — skipped when no enforcer is configured (Phase A compat)
+        if self._enforcer is not None:
+            gate_decision = await self._enforcer.gate(scope, merged_context)
+            merged_context["_gate_decision"] = gate_decision
+
         secret = await self._store.get(scope)
         if secret is None:
             raise ScopeNotFoundError(scope)
@@ -86,5 +115,4 @@ class CredentialResolver:
         if applier is None:
             raise NoApplierError(scope, secret_type, transport)
 
-        merged_context: dict = {"scope": scope, **(context or {})}
         return await applier.apply(secret, merged_context)  # type: ignore[arg-type]

@@ -6,9 +6,15 @@ from loom.auth import (
     AuthApplierError,
     BasicHttpApplier,
     BearerHttpApplier,
+    CredentialDenied,
+    CredentialPolicy,
     CredentialResolver,
+    GateDecision,
     NoApplierError,
     OAuth2CCHttpApplier,
+    PolicyEnforcer,
+    PolicyMode,
+    PolicyStore,
     ScopeNotFoundError,
     SecretExpiredError,
 )
@@ -89,7 +95,7 @@ from loom.types import (
 __version__ = "0.3.0"
 
 __all__ = [
-    # auth
+    # auth — Phase A
     "Applier",
     "BasicHttpApplier",
     "BearerHttpApplier",
@@ -101,6 +107,13 @@ __all__ = [
     "SecretExpiredError",
     "NoApplierError",
     "ScopeNotFoundError",
+    # auth — Phase B
+    "PolicyMode",
+    "CredentialPolicy",
+    "PolicyStore",
+    "GateDecision",
+    "CredentialDenied",
+    "PolicyEnforcer",
     # store.secrets
     "ApiKeySecret",
     "BasicAuthSecret",
