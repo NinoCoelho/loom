@@ -28,6 +28,7 @@ from loom.home import AgentHome
 from loom.llm.base import LLMProvider
 from loom.llm.registry import ProviderRegistry
 from loom.loop import Agent, AgentConfig, AgentTurn
+from loom.mcp import McpClient, McpServerConfig, McpToolHandler
 from loom.permissions import AgentPermissions
 from loom.prompt import PromptBuilder, PromptSection
 from loom.runtime import AgentRuntime
@@ -106,6 +107,9 @@ __all__ = [
     "VaultToolHandler",
     "AcpCallTool",
     "AcpConfig",
+    "McpClient",
+    "McpServerConfig",
+    "McpToolHandler",
     "BrokerAskUserTool",
     "CURRENT_SESSION_ID",
     "HitlBroker",

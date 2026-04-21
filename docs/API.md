@@ -431,6 +431,50 @@ class DeviceKeypair:
 
 ---
 
+## MCP Client (`loom.mcp`)
+
+Optional (`pip install "loom[mcp]"`). Connect to external MCP servers and expose their tools as Loom `ToolHandler` instances.
+
+### `McpServerConfig`
+```python
+class McpServerConfig(BaseModel):
+    name: str
+    transport: Literal["stdio", "sse"] = "stdio"
+    # stdio transport
+    command: list[str] | None = None
+    env: dict[str, str] = {}
+    # sse transport
+    url: str | None = None
+    headers: dict[str, str] = {}
+```
+
+### `McpClient`
+Async context manager owning one MCP session.
+```python
+class McpClient:
+    def __init__(self, config: McpServerConfig) -> None: ...
+    async def __aenter__(self) -> McpClient: ...
+    async def __aexit__(self, *exc) -> None: ...
+    async def list_tools(self) -> list[McpToolHandler]: ...
+    async def call_tool(self, name: str, args: dict) -> ToolResult: ...
+```
+
+### `McpToolHandler(ToolHandler)`
+Wraps one remote MCP tool. Constructed by `McpClient.list_tools()`; register with a `ToolRegistry` to make it callable by the agent.
+
+**Usage:**
+```python
+from loom.mcp import McpClient, McpServerConfig
+
+config = McpServerConfig(name="web", transport="stdio", command=["npx", "-y", "my-mcp-server"])
+async with McpClient(config) as client:
+    for handler in await client.list_tools():
+        tool_registry.register(handler)
+    await agent.run_turn(messages)  # client must stay open here
+```
+
+---
+
 ## HITL Broker (`loom.hitl`)
 
 ### `HitlBroker`
