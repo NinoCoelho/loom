@@ -602,6 +602,13 @@ class Agent:
                     name=tc.name,
                 ))
 
+        limit_reply = (
+            self._config.limit_message_builder(self._config.max_iterations)
+            if self._config.limit_message_builder
+            else "[iteration limit reached]"
+        )
+        yield _wrap(ContentDeltaEvent(delta=limit_reply))
+        final_assistant = ChatMessage(role=Role.ASSISTANT, content=limit_reply)
         yield _wrap(LimitReachedEvent(iterations=self._config.max_iterations))
         yield _wrap(DoneEvent(context={
             "model": model_name,
@@ -609,6 +616,6 @@ class Agent:
             "input_tokens": total_input,
             "output_tokens": total_output,
             "tool_calls": total_tool_calls,
-            "messages": [m.model_dump() for m in all_messages],
+            "messages": [m.model_dump() for m in all_messages + [final_assistant]],
             "limit_reached": True,
         }))
