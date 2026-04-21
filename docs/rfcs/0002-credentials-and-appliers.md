@@ -1,5 +1,9 @@
 # RFC 0002 — Credentials, Appliers, and Policies
 
+> **Phase A landed in v0.3.** `loom.store.secrets.SecretStore` (Fernet-encrypted typed secrets)
+> and `loom.auth` (HTTP appliers + `CredentialResolver`) are available as of v0.3.
+> Phase B (policies + HITL) and Phase C (KeychainStore) are not yet implemented.
+
 - **Status**: Draft
 - **Author**: —
 - **Target release**: 0.3 (phased)

@@ -12,7 +12,6 @@ from loom.mcp import McpClient, McpServerConfig, McpToolHandler
 from loom.tools.base import ToolResult
 from loom.types import ToolSpec
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 

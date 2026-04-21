@@ -277,6 +277,7 @@ The steps above cover the most common patterns. Loom has more:
 | MCP client (external tool servers) | `loom.mcp` |
 | Multi-provider registry with model routing | `loom.llm.registry`, `loom.routing` |
 | Agent home (identity files, vault, sessions) | `loom.home` |
+| Credentials (typed secrets, HTTP appliers, resolver) | `loom.auth`, `loom.store.secrets` |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation and [docs/API.md](docs/API.md) for the complete API reference.
 
