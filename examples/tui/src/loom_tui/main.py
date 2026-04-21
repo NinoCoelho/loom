@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import sys
 from pathlib import Path
 
 import typer
@@ -17,14 +15,12 @@ from loom.config.resolver import resolve_config
 from loom.llm.openai_compat import OpenAICompatibleProvider
 from loom.llm.registry import ProviderRegistry
 from loom.loop import Agent, AgentConfig
-from loom.skills.guard import SkillGuard
 from loom.skills.registry import SkillRegistry
-from loom.tools.base import ToolHandler, ToolResult
 from loom.tools.hitl import AskUserTool, TerminalTool
 from loom.tools.http import HttpCallTool
 from loom.tools.memory import MemoryToolHandler
 from loom.tools.registry import ToolRegistry
-from loom.types import ChatMessage, Role, ToolSpec
+from loom.types import ChatMessage, Role
 
 app = typer.Typer(help="Loom TUI - Test application for the Loom agentic framework")
 console = Console()
@@ -35,7 +31,11 @@ LOOM_DIR = Path.home() / ".loom-tui"
 def _build_agent(config: LoomConfig) -> Agent:
     base_url, api_key, model = resolve_config(config=config)
     if not base_url and not model:
-        console.print("[red]No LLM configured. Run 'loom-tui setup' or set LOOM_LLM_BASE_URL, LOOM_LLM_API_KEY, LOOM_LLM_MODEL env vars.[/red]")
+        console.print(
+            "[red]No LLM configured. Run 'loom-tui setup' or set "
+            "LOOM_LLM_BASE_URL, LOOM_LLM_API_KEY, "
+            "LOOM_LLM_MODEL env vars.[/red]"
+        )
         raise typer.Exit(1)
 
     provider = OpenAICompatibleProvider(
@@ -123,7 +123,6 @@ def chat():
     console.print(Panel("Loom TUI - Agentic Chat", style="bold blue"))
     console.print("Type [bold]exit[/bold] or [bold]quit[/bold] to leave.\n")
 
-    session_id = "tui-session"
     history: list[ChatMessage] = []
     prompt_session: PromptSession = PromptSession(history=FileHistory(str(LOOM_DIR / "history")))
 
@@ -179,7 +178,9 @@ def setup(
     config_store = ConfigStore(LOOM_DIR / "config.json")
 
     if not base_url:
-        base_url = input("Base URL [http://localhost:11434/v1]: ").strip() or "http://localhost:11434/v1"
+        base_url = (
+            input("Base URL [http://localhost:11434/v1]: ").strip() or "http://localhost:11434/v1"
+        )
     if not model:
         model = input("Model name [gpt-4o]: ").strip() or "gpt-4o"
     if not api_key:
