@@ -258,6 +258,24 @@ ACP enables agents to call external agents over WebSocket with Ed25519 authentic
 
 **AcpConfig** -- connection configuration (URL, timeout, retries).
 
+### 12b. MCP Client (`loom.mcp`)
+
+MCP (Model Context Protocol) client integration -- connect to external MCP servers and register their tools with a Loom `ToolRegistry`. Optional subpackage (requires `pip install "loom[mcp]"`).
+
+**McpServerConfig** -- Pydantic model describing one server:
+- `transport: "stdio" | "sse"`
+- stdio: `command: list[str]`, `env: dict`
+- sse: `url: str`, `headers: dict`
+
+**McpClient** -- async context manager that owns the session lifecycle:
+- `__aenter__` launches the subprocess (stdio) or opens SSE, then calls `initialize()`
+- `list_tools()` discovers remote tools via `tools/list` and returns `McpToolHandler` instances
+- `call_tool(name, args)` proxies to `tools/call`, flattens `content` blocks into `ToolResult.text`
+
+**McpToolHandler** -- a `ToolHandler` wrapping one remote MCP tool. Constructed with a `call_fn` callable (bound to the parent `McpClient.call_tool`) to avoid circular coupling.
+
+**Lifecycle:** the `McpClient` context manager must stay open while tools are in use -- register the handlers inside the `async with` block.
+
 ### 13. HITL Broker (`loom.hitl`)
 
 For web/SSE integrations where the agent can't directly prompt a terminal user.
