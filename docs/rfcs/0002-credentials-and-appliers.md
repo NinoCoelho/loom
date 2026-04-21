@@ -5,7 +5,11 @@
 > **Phase B landed in v0.3 (policies + HITL integration).** `loom.auth.PolicyMode`,
 > `CredentialPolicy`, `PolicyStore`, `PolicyEnforcer`, `GateDecision`, and `CredentialDenied`
 > are available. `CredentialResolver` now accepts an optional `enforcer` kwarg.
-> Phase C (KeychainStore) is not yet implemented.
+> **Phase C landed in v0.4.** `loom.store.keychain.KeychainStore` (OS keychain via `keyring`),
+> `SigV4Applier` + `AwsSigV4Secret` (AWS request signing via `botocore`),
+> `JwtBearerApplier` + `JwtSigningKeySecret` (client-assertion JWT via `PyJWT`),
+> and `scope_acl` hook on `CredentialResolver` are all available.
+> New extras: `loom[keychain]`, `loom[aws]`, `loom[jwt]`.
 
 - **Status**: Draft
 - **Author**: —

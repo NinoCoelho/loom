@@ -15,7 +15,7 @@ Design proposals for substantive changes to loom's public surface. The template-
 | # | Title | Status | Target | Summary |
 |---|---|---|---|---|
 | [0001](0001-http-tool-pre-request-hook.md) | `HttpCallTool` pre-request hook | Draft | 0.3 | Optional async hook for URL rewriting, header/credential injection. Unblocks consumers composing on top of `HttpCallTool`. |
-| [0002](0002-credentials-and-appliers.md) | Credentials, Appliers, and Policies | Draft | 0.3 (phased) | Three-layer credential subsystem: typed secrets, transport-agnostic appliers, HITL-gated policies. Loom becomes the shared credential substrate across HTTP / SSH / LLM / future transports. |
+| [0002](0002-credentials-and-appliers.md) | Credentials, Appliers, and Policies | Implemented | 0.3–0.4 | Three-layer credential subsystem: typed secrets, transport-agnostic appliers, HITL-gated policies. Phase C adds KeychainStore, SigV4Applier, JwtBearerApplier, and ACL hook. |
 | [0003](0003-ssh-tool.md) | `SshCallTool` (asyncssh) | Implemented | 0.3 | Agent tool for running commands over SSH. Depends on RFC 0002 for auth. Ships under `loom[ssh]` extras. |
 | [0004](0004-sse-event-shape-convergence.md) | SSE event shape convergence | Discussion | TBD | Open question about whether/how to enrich loom's streaming events so consumers don't need translation layers. Requires cross-project alignment. |
 
