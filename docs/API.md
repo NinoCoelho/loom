@@ -308,6 +308,224 @@ class SecretsStore:
     def list_keys(self) -> list[str]: ...
 ```
 
+Deprecated. Use `SecretStore` for new code.
+
+---
+
+## Credentials (`loom.auth`, `loom.store.secrets`, `loom.store.keychain`)
+
+### Secret Types (`loom.store.secrets`)
+
+Eight typed dicts that cover common credential shapes:
+
+| TypedDict | `type` literal | Key fields |
+|---|---|---|
+| `PasswordSecret` | `"password"` | `value: str` |
+| `ApiKeySecret` | `"api_key"` | `value: str` |
+| `BasicAuthSecret` | `"basic_auth"` | `username: str`, `password: str` |
+| `BearerTokenSecret` | `"bearer_token"` | `token: str`, `expires_at: str \| None` |
+| `OAuth2ClientCredentialsSecret` | `"oauth2_client_credentials"` | `client_id`, `client_secret`, `token_url`, `scopes` |
+| `SshPrivateKeySecret` | `"ssh_private_key"` | `key_pem: str`, `passphrase: str \| None` |
+| `AwsSigV4Secret` | `"aws_sigv4"` | `access_key_id`, `secret_access_key`, `session_token`, `region` |
+| `JwtSigningKeySecret` | `"jwt_signing_key"` | `private_key_pem`, `algorithm`, `key_id`, `issuer`, `audience`, `subject`, `ttl_seconds` |
+
+`Secret = Union[PasswordSecret, ApiKeySecret, BasicAuthSecret, BearerTokenSecret, OAuth2ClientCredentialsSecret, SshPrivateKeySecret, AwsSigV4Secret, JwtSigningKeySecret]`
+
+### `SecretStore`
+
+Fernet-encrypted, scope-keyed secret store. Key auto-generated at `<store_dir>/keys/secrets.key`; override with `LOOM_SECRET_KEY` env var.
+
+```python
+class SecretStore:
+    def __init__(self, path: Path, *, key_path: Path | None = None): ...
+    async def put(self, scope: str, secret: Secret, *, metadata: dict | None = None) -> str: ...
+    async def get(self, scope: str) -> Secret | None: ...
+    async def get_metadata(self, scope: str) -> dict | None: ...
+    async def list(self, scope_prefix: str | None = None) -> list[SecretMetadata]: ...
+    async def revoke(self, scope: str) -> bool: ...     # True if existed; idempotent
+    async def rotate(self, scope: str, new_secret: Secret) -> str: ...  # raises KeyError if absent
+```
+
+### `KeychainStore`
+
+OS keychain backend (`loom[keychain]`). Identical public protocol to `SecretStore`.
+
+```python
+class KeychainStore:
+    def __init__(self, service: str = "loom"): ...
+    async def put(self, scope: str, secret: Secret, *, metadata: dict | None = None) -> str: ...
+    async def get(self, scope: str) -> Secret | None: ...
+    async def get_metadata(self, scope: str) -> dict | None: ...
+    async def list(self, scope_prefix: str | None = None) -> list[SecretMetadata]: ...
+    async def revoke(self, scope: str) -> bool: ...
+    async def rotate(self, scope: str, new_secret: Secret) -> str: ...
+```
+
+Backed by macOS Keychain / Linux Secret Service / Windows Credential Manager via `keyring`.
+
+### `SecretMetadata`
+```python
+class SecretMetadata(TypedDict):
+    scope: str
+    secret_type: str
+    created_at: str   # ISO 8601
+    version: int
+    metadata: dict    # free-form; SSH stores hostname/port/username here
+```
+
+---
+
+### Appliers (`loom.auth.appliers`)
+
+| Class | `secret_type` | Transport | Output |
+|---|---|---|---|
+| `BasicHttpApplier` | `basic_auth` | `http` | `{"Authorization": "Basic <b64>"}` |
+| `BearerHttpApplier` | `bearer_token` | `http` | `{"Authorization": "Bearer <token>"}` |
+| `OAuth2CCHttpApplier` | `oauth2_client_credentials` | `http` | `{"Authorization": "Bearer <access_token>"}` |
+| `ApiKeyHeaderApplier(header_name="X-API-Key")` | `api_key` | `http` | `{header_name: value}` |
+| `ApiKeyStringApplier` | `api_key` | `llm_api_key` | raw `str` |
+| `SshPasswordApplier` | `password` | `ssh` | `SshConnectArgs` |
+| `SshKeyApplier` | `ssh_private_key` | `ssh` | `SshConnectArgs` |
+| `SigV4Applier` | `aws_sigv4` | `http` | full headers dict with `Authorization`, `x-amz-date` (`loom[aws]`) |
+| `JwtBearerApplier` | `jwt_signing_key` | `http` | `{"Authorization": "Bearer <jwt>"}` (`loom[jwt]`) |
+
+**Applier protocol:**
+```python
+class Applier(Protocol):
+    secret_type: str
+    async def apply(self, secret: Secret, context: dict) -> Any: ...
+```
+
+---
+
+### `CredentialResolver` (`loom.auth.resolver`)
+
+```python
+class CredentialResolver:
+    def __init__(
+        self,
+        store: SecretStore,
+        appliers: dict[tuple[str, str], Applier] | None = None,
+        *,
+        enforcer: PolicyEnforcer | None = None,
+        scope_acl: Callable[[str, str, str], bool] | None = None,
+    ): ...
+
+    def register(self, applier: Applier, *, transport: str) -> None: ...
+
+    async def resolve_for(
+        self,
+        scope: str,
+        transport: str,
+        context: dict | None = None,
+    ) -> Any: ...
+```
+
+`resolve_for` pipeline: ACL check → `enforcer.gate()` → `store.get()` → `applier.apply()`. Raises `ScopeAccessDenied`, `CredentialDenied`, `ScopeNotFoundError`, or `NoApplierError` on failure.
+
+---
+
+### `PolicyStore` (`loom.auth.policy_store`)
+
+File-backed persistence for `CredentialPolicy` objects (plain JSON, mode 0600).
+
+```python
+class PolicyStore:
+    def __init__(self, path: Path): ...
+    async def put(self, policy: CredentialPolicy) -> None: ...
+    async def get(self, scope: str) -> CredentialPolicy | None: ...
+    async def delete(self, scope: str) -> bool: ...
+    async def list(self, scope_prefix: str | None = None) -> list[CredentialPolicy]: ...
+    async def decrement_uses(self, scope: str) -> int: ...  # ONE_SHOT countdown
+```
+
+### `CredentialPolicy` (`loom.auth.policies`)
+
+```python
+@dataclass(frozen=True)
+class CredentialPolicy:
+    scope: str
+    mode: PolicyMode
+    window_start: datetime | None = None   # TIME_BOXED
+    window_end: datetime | None = None     # TIME_BOXED
+    uses_remaining: int | None = None      # ONE_SHOT / counted
+    prompt_message: str | None = None      # NOTIFY_BEFORE custom prompt
+```
+
+### `PolicyMode` (`loom.auth.policies`)
+
+```python
+class PolicyMode(StrEnum):
+    AUTONOMOUS = "autonomous"       # no gate
+    NOTIFY_BEFORE = "notify_before" # human must approve each use
+    NOTIFY_AFTER = "notify_after"   # fire-and-log
+    TIME_BOXED = "time_boxed"       # autonomous inside [window_start, window_end)
+    ONE_SHOT = "one_shot"           # single use, then auto-revoked
+```
+
+### `PolicyEnforcer` (`loom.auth.enforcer`)
+
+```python
+class PolicyEnforcer:
+    def __init__(
+        self,
+        policy_store: PolicyStore,
+        hitl: HitlBroker | None = None,
+        secret_store: SecretStore | None = None,
+    ): ...
+
+    async def gate(self, scope: str, context: dict | None = None) -> GateDecision: ...
+    # Raises CredentialDenied on denial; returns GateDecision on success.
+```
+
+### `GateDecision` (`loom.auth.enforcer`)
+
+```python
+@dataclass(frozen=True)
+class GateDecision:
+    allowed: bool
+    policy: CredentialPolicy | None   # None = implicit AUTONOMOUS
+    prompt_resolution: str | None     # NOTIFY_BEFORE answer when approved
+    reason: str | None                # denial reason when allowed=False
+```
+
+---
+
+### `SshCallTool` (`loom.tools.ssh`)
+
+Requires `loom[ssh]`.
+
+```python
+class SshCallTool(ToolHandler):
+    def __init__(
+        self,
+        credential_resolver: CredentialResolver,
+        known_hosts_path: str | None = None,  # None = ~/.ssh/known_hosts; False = disable (dev only)
+        connect_timeout: float = 10.0,
+        command_timeout: float = 60.0,
+        max_output_bytes: int = 10240,
+    ): ...
+```
+
+Tool name: `ssh_call`. Parameters: `host` (scope key), `command` (str), `stdin` (str, optional), `timeout` (float, optional).
+
+On success, `ToolResult.text` is stdout (truncated at `max_output_bytes`). Metadata keys: `exit_code`, `stderr`, `truncated_stdout`, `truncated_stderr`, `duration_ms`.
+
+On error, `ToolResult.metadata["error_class"]` is one of `auth | timeout | transport | unknown`.
+
+---
+
+### Credential error types (`loom.auth.errors`, `loom.auth.enforcer`)
+
+| Exception | Raised when |
+|---|---|
+| `AuthApplierError` | Base class for all applier errors |
+| `SecretExpiredError` | Bearer token `expires_at` is in the past |
+| `NoApplierError` | No applier registered for `(secret_type, transport)` |
+| `ScopeNotFoundError` | Scope absent from the `SecretStore` |
+| `ScopeAccessDenied` | `scope_acl` hook returned `False` |
+| `CredentialDenied` | `PolicyEnforcer.gate()` denied access (policy rule or HITL rejection) |
+
 ---
 
 ## Server (`loom.server`)

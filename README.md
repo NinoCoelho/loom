@@ -190,6 +190,59 @@ tools.register(TerminalTool(ask_user))  # TerminalTool uses AskUserTool for appr
 
 ---
 
+### Step 7 — Add credentials
+
+Store secrets, resolve them into transport-ready headers, and gate usage with a policy — all without the agent ever touching the secret bytes.
+
+**Store a secret:**
+
+```python
+from pathlib import Path
+from loom.store.secrets import SecretStore
+
+store = SecretStore(path=Path.home() / ".myapp" / "secrets.db")
+await store.put("my-api", {"type": "api_key", "value": "sk-..."})
+```
+
+The store writes an encrypted file at the path you choose (Fernet at-rest, key auto-generated at `secrets.db/../keys/secrets.key`). Override the key with `LOOM_SECRET_KEY` env var.
+
+**Resolve headers automatically via `CredentialResolver` + `HttpCallTool`:**
+
+```python
+from loom.auth.appliers import ApiKeyHeaderApplier
+from loom.auth.resolver import CredentialResolver
+from loom.tools.http import HttpCallTool
+
+resolver = CredentialResolver(store)
+resolver.register(ApiKeyHeaderApplier(header_name="Authorization"), transport="http")
+
+async def auth_hook(req: dict) -> dict:
+    headers = await resolver.resolve_for("my-api", "http")
+    return {**req, "headers": {**req["headers"], **headers}}
+
+tools.register(HttpCallTool(pre_request_hook=auth_hook))
+```
+
+The hook runs before every HTTP request. The agent calls `http_call` with a URL and method; the hook injects the header. The agent never sees the key value.
+
+**Add a policy (optional — AUTONOMOUS by default):**
+
+```python
+from loom.auth.enforcer import PolicyEnforcer
+from loom.auth.policies import CredentialPolicy, PolicyMode
+from loom.auth.policy_store import PolicyStore
+
+policy_store = PolicyStore(path=Path.home() / ".myapp" / "policies.json")
+await policy_store.put(CredentialPolicy(scope="my-api", mode=PolicyMode.NOTIFY_BEFORE))
+
+enforcer = PolicyEnforcer(policy_store=policy_store, hitl=hitl_broker)
+resolver = CredentialResolver(store, enforcer=enforcer)
+```
+
+`NOTIFY_BEFORE` blocks the request and fires a HITL prompt before releasing the secret. Other modes: `AUTONOMOUS` (no gate), `NOTIFY_AFTER` (fire-and-log), `TIME_BOXED` (allowed inside a datetime window), `ONE_SHOT` (single use, then auto-revoked).
+
+---
+
 ### Step 6 — Build a chat loop
 
 Put it together. This is the core pattern behind the full TUI example.
@@ -277,7 +330,8 @@ The steps above cover the most common patterns. Loom has more:
 | MCP client (external tool servers) | `loom.mcp` |
 | Multi-provider registry with model routing | `loom.llm.registry`, `loom.routing` |
 | Agent home (identity files, vault, sessions) | `loom.home` |
-| Credentials (typed secrets, HTTP appliers, resolver) | `loom.auth`, `loom.store.secrets` |
+| Credentials — typed secrets (8 types), 8 appliers (HTTP/SSH/AWS/JWT), resolver, 5 HITL policy modes, OS keychain backend | `loom.auth`, `loom.store.secrets`, `loom.store.keychain` |
+| SSH tool — run commands on remote hosts; auth via credential pipeline | `loom.tools.ssh` (`loom[ssh]`) |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation and [docs/API.md](docs/API.md) for the complete API reference.
 

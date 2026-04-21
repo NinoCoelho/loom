@@ -11,6 +11,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `loom.mcp` subpackage: MCP (Model Context Protocol) client integration. `McpServerConfig`, `McpClient` (async context manager for stdio/SSE transports), and `McpToolHandler` let agents register and call tools exposed by external MCP servers.
 - New optional extra: `pip install "loom[mcp]"` (depends on the official `mcp` SDK).
 
+## [0.3.0]
+
+### Added
+
+- **RFC 0001 — `HttpCallTool` pre-request hook.** Optional `pre_request_hook: async (dict) -> dict` parameter on `HttpCallTool`. Hook runs after argument parsing and before dispatch, receiving and returning `{method, url, headers, body}`. Enables credential injection, URL rewriting, and proxy overrides without forking the tool. Fully backward compatible (hook defaults to `None`).
+
+- **RFC 0002 — Credential subsystem.** Full three-layer credential pipeline:
+  - *Layer 1 — `loom.store.secrets.SecretStore`*: Fernet-encrypted, scope-keyed typed secret vault. 8 secret types: `password`, `api_key`, `basic_auth`, `bearer_token`, `oauth2_client_credentials`, `ssh_private_key`, `aws_sigv4`, `jwt_signing_key`. API: `put / get / get_metadata / list / revoke / rotate`. Key auto-generated at `$LOOM_HOME/keys/secrets.key` or from `LOOM_SECRET_KEY` env var.
+  - *Layer 1 (alt) — `loom.store.keychain.KeychainStore`* (`loom[keychain]`): same protocol, backed by OS keychain (macOS Keychain / Linux Secret Service / Windows Credential Manager) via `keyring`.
+  - *Layer 2 — `loom.auth.appliers`*: 9 transport-specific appliers: `BasicHttpApplier`, `BearerHttpApplier`, `OAuth2CCHttpApplier` (in-process token cache), `ApiKeyHeaderApplier`, `ApiKeyStringApplier`, `SshPasswordApplier`, `SshKeyApplier`, `SigV4Applier` (`loom[aws]`), `JwtBearerApplier` (`loom[jwt]`).
+  - *Layer 3 — `loom.auth.policies` + `loom.auth.enforcer`*: `PolicyEnforcer` with 5 HITL-gated modes (`AUTONOMOUS`, `NOTIFY_BEFORE`, `NOTIFY_AFTER`, `TIME_BOXED`, `ONE_SHOT`). Integrates with `loom.hitl.HitlBroker` for approval prompts. `PolicyStore` persists policies as 0600 JSON.
+  - `CredentialResolver`: single entry-point wiring store + appliers + enforcer. Supports optional `scope_acl` hook for ACL-gated multi-principal deployments (`loom[jwt]` Phase C).
+  - Error types: `AuthApplierError`, `SecretExpiredError`, `NoApplierError`, `ScopeNotFoundError`, `ScopeAccessDenied`, `CredentialDenied`.
+  - New optional extras: `loom[keychain]`, `loom[aws]`, `loom[jwt]`.
+
+- **RFC 0003 — `SshCallTool`** (`loom[ssh]`): run one-shot commands on remote hosts via asyncssh. Authenticates through the `loom.auth` credential pipeline (`SshPasswordApplier` or `SshKeyApplier`). Hostname/port/username read from `SecretMetadata` — the agent never sees connection details. Configurable `connect_timeout`, `command_timeout`, `max_output_bytes`, and `known_hosts_path`. Error classification: `auth | timeout | transport | unknown`. Error messages scrubbed via `loom.llm.redact` before returning.
+
+- **412 tests passing** across all three RFCs and the rest of the test suite.
+
 ## [0.2.0] - 2025-01-20
 
 ### Added

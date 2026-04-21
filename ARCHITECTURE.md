@@ -191,8 +191,17 @@ The loop handles tool call assembly: collects fragments, dispatches completed to
 - Auto-reindexing on write
 
 **SecretsStore** -- plaintext JSON at `~/.loom/secrets.json` (0600):
-- Simple key-value secrets
-- Suitable for local dev; production apps should use encryption
+- Simple key-value secrets; kept for backward compatibility
+- **Deprecated** — prefer `SecretStore` for new code
+
+**SecretStore** -- Fernet-encrypted JSON at a caller-supplied path (RFC 0002):
+- 8 typed secrets: `password`, `api_key`, `basic_auth`, `bearer_token`, `oauth2_client_credentials`, `ssh_private_key`, `aws_sigv4`, `jwt_signing_key`
+- Key auto-generated at `<store_dir>/keys/secrets.key` (mode 0600); override with `LOOM_SECRET_KEY` env var
+- All reads decrypt from disk on every call (no in-process secret cache)
+- `put / get / get_metadata / list / revoke / rotate`
+
+**KeychainStore** -- OS keychain backend for `SecretStore`-compatible access (`loom[keychain]`):
+- Same protocol as `SecretStore`; backed by macOS Keychain / Linux Secret Service / Windows Credential Manager via `keyring`
 
 **Atomic writes** (`store/atomic.py`):
 - `tempfile.mkstemp` + `os.replace`
@@ -310,6 +319,75 @@ class EmbeddingProvider(Protocol):
 When wired in, vector similarity is added to the hybrid score. Default is pure BM25+salience.
 
 **Memory preview** -- top 5 recent memories auto-injected into system prompt (1500 char budget).
+
+### 15. Credential Subsystem (`loom.auth`, `loom.store.secrets`)
+
+Implements RFC 0002 (credentials + appliers + policies) and RFC 0003 (SSH tool). Three decoupled layers; each is independently usable.
+
+#### Layer 1 — Secret storage
+
+`SecretStore` is the default backend: typed, Fernet-encrypted, scope-keyed JSON file. `KeychainStore` is the OS-backed alternative (`loom[keychain]`). Both expose the same async protocol: `put / get / get_metadata / list / revoke / rotate`.
+
+Scopes are opaque strings (e.g. `"prod-oic-us-east"`, `"agent:coder:openai"`). Loom imposes no structure.
+
+#### Layer 2 — Auth appliers
+
+An **applier** converts a `Secret` into transport-ready material. Each applier handles exactly one `(secret_type, transport)` pair.
+
+| Applier | Secret type | Transport | Output |
+|---|---|---|---|
+| `BasicHttpApplier` | `basic_auth` | `http` | `{"Authorization": "Basic ..."}` |
+| `BearerHttpApplier` | `bearer_token` | `http` | `{"Authorization": "Bearer ..."}` |
+| `OAuth2CCHttpApplier` | `oauth2_client_credentials` | `http` | `{"Authorization": "Bearer ..."}` (token cached in-process) |
+| `ApiKeyHeaderApplier` | `api_key` | `http` | `{header_name: value}` (configurable header) |
+| `ApiKeyStringApplier` | `api_key` | `llm_api_key` | raw `str` |
+| `SshPasswordApplier` | `password` | `ssh` | `SshConnectArgs` |
+| `SshKeyApplier` | `ssh_private_key` | `ssh` | `SshConnectArgs` |
+| `SigV4Applier` | `aws_sigv4` | `http` | full headers dict including `Authorization` (`loom[aws]`) |
+| `JwtBearerApplier` | `jwt_signing_key` | `http` | `{"Authorization": "Bearer <signed-jwt>"}` (`loom[jwt]`) |
+
+Extras groups: `loom[ssh]` (asyncssh), `loom[aws]` (botocore), `loom[jwt]` (PyJWT), `loom[keychain]` (keyring).
+
+#### Layer 3 — Policy enforcement (HITL gating)
+
+`PolicyEnforcer.gate(scope, context)` runs *before* the secret is fetched. Five modes:
+
+| Mode | Behaviour |
+|---|---|
+| `AUTONOMOUS` | No gate — agent uses credential freely |
+| `NOTIFY_BEFORE` | Blocks; human must approve via `HitlBroker` before secret is released |
+| `NOTIFY_AFTER` | Fire-and-log — secret released immediately, event emitted for audit |
+| `TIME_BOXED` | Autonomous inside `[window_start, window_end)`; denied outside |
+| `ONE_SHOT` | Allowed once; `uses_remaining` decremented to 0 and secret auto-revoked |
+
+No policy configured for a scope → implicit `AUTONOMOUS` (backward compatible).
+
+`PolicyStore` persists `CredentialPolicy` objects as 0600 JSON (not encrypted — policies are metadata, not secrets).
+
+#### The resolution pipeline
+
+```
+scope
+  → ACL check (scope_acl, optional)       raises ScopeAccessDenied
+  → PolicyEnforcer.gate()                  raises CredentialDenied
+  → SecretStore.get()                      raises ScopeNotFoundError
+  → Applier.apply(secret, context)         raises NoApplierError / AuthApplierError
+  → transport-ready material
+```
+
+`CredentialResolver` wires these three layers together. Consumers register appliers with `resolver.register(applier, transport=...)`, then call `await resolver.resolve_for(scope, transport)`.
+
+#### Pre-request hook integration (RFC 0001)
+
+`HttpCallTool` accepts an optional `pre_request_hook: async (dict) -> dict` that runs after argument parsing and before the HTTP request is dispatched. The hook receives and returns `{method, url, headers, body}`. This is the canonical way to feed resolver output into an HTTP tool call.
+
+#### SshCallTool (RFC 0003)
+
+`loom.tools.ssh.SshCallTool` runs one-shot commands on remote hosts via asyncssh. It calls `resolver.resolve_for(scope, "ssh")` to get `SshConnectArgs` (host, port, username, auth material) and never exposes connection details to the agent. Returns `ToolResult` with `exit_code`, `stderr`, `truncated_stdout`, `truncated_stderr`, `duration_ms` in metadata. Errors are classified as `auth | timeout | transport | unknown`.
+
+Requires `loom[ssh]`.
+
+---
 
 ## Data Flow
 
