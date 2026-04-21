@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 import httpx
 
 from loom.tools.base import ToolHandler, ToolResult
 from loom.types import ToolSpec
+
+# Hook signature: takes the effective request dict, returns a (possibly
+# modified) request dict of the same shape. Keys: method, url, headers, body.
+# Consumers use this to inject credentials, rewrite URLs (e.g. a
+# target://name scheme → base_url), or enforce policy checks before the
+# request goes on the wire. Raise to cancel the request — the error
+# surfaces as ToolResult(text="HTTP error: <msg>"), same envelope as a
+# transport error.
+PreRequestHook = Callable[[dict], Awaitable[dict]]
 
 
 class HttpCallTool(ToolHandler):
@@ -12,10 +23,12 @@ class HttpCallTool(ToolHandler):
         base_headers: dict | None = None,
         timeout: float = 30.0,
         max_response_bytes: int = 10240,
+        pre_request_hook: PreRequestHook | None = None,
     ) -> None:
         self._base_headers = base_headers or {}
         self._timeout = timeout
         self._max_response_bytes = max_response_bytes
+        self._pre_request_hook = pre_request_hook
 
     @property
     def tool(self) -> ToolSpec:
@@ -52,6 +65,18 @@ class HttpCallTool(ToolHandler):
         url = args.get("url", "")
         headers = {**self._base_headers, **(args.get("headers") or {})}
         body = args.get("body")
+
+        if self._pre_request_hook is not None:
+            try:
+                request = await self._pre_request_hook(
+                    {"method": method, "url": url, "headers": headers, "body": body}
+                )
+            except Exception as e:
+                return ToolResult(text=f"HTTP error: {e}")
+            method = request.get("method", method).upper()
+            url = request.get("url", url)
+            headers = request.get("headers", headers)
+            body = request.get("body", body)
 
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
