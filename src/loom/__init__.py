@@ -42,6 +42,23 @@ from loom.hitl import (
     HitlRequest,
     TIMEOUT_SENTINEL,
 )
+from loom.heartbeat import (
+    HeartbeatDriver,
+    HeartbeatEvent,
+    HeartbeatManager,
+    HeartbeatRecord,
+    HeartbeatRegistry,
+    HeartbeatRunRecord,
+    HeartbeatScheduler,
+    HeartbeatStore,
+    HeartbeatToolHandler,
+    RunFn,
+    Schedule,
+    is_due,
+    load_heartbeat,
+    make_run_fn,
+    parse_schedule,
+)
 
 __version__ = "0.2.0"
 
@@ -95,4 +112,20 @@ __all__ = [
     "HitlEvent",
     "HitlRequest",
     "TIMEOUT_SENTINEL",
+    # heartbeat
+    "HeartbeatDriver",
+    "HeartbeatEvent",
+    "HeartbeatManager",
+    "HeartbeatRecord",
+    "HeartbeatRegistry",
+    "HeartbeatRunRecord",
+    "HeartbeatScheduler",
+    "HeartbeatStore",
+    "HeartbeatToolHandler",
+    "RunFn",
+    "Schedule",
+    "is_due",
+    "load_heartbeat",
+    "make_run_fn",
+    "parse_schedule",
 ]
