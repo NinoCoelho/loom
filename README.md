@@ -15,44 +15,14 @@
 </p>
 
 <p align="center">
-  Loom provides the core infrastructure every agent needs — an iterative LLM loop, tool calling, skill management, streaming, human-in-the-loop approvals, multi-provider support, agent identity, persistent memory, and multi-agent coordination. Wire the pieces you need. Ignore the rest.
+  Loom gives you the core infrastructure every agent needs — an iterative LLM loop, tool calling, skill management, streaming, human-in-the-loop approvals, multi-provider support, persistent memory, and multi-agent coordination. Wire the pieces you need. Ignore the rest.
 </p>
 
 ---
 
-## Why Loom?
+## Build a chat agent in 6 steps
 
-Building a production agent means solving the same problems over and over: managing LLM conversations, dispatching tools, handling errors, streaming responses, letting humans approve actions, persisting memory across sessions, and coordinating multiple agents. Loom gives you battle-tested primitives for all of it without locking you into a specific domain model.
-
-**Composition over inheritance.** You don't subclass `Agent`. You create one, wire in the tools/providers/skills you need, and call `run_turn()`. The framework stays out of your way.
-
-**Provider-agnostic.** Works with OpenAI, Anthropic, Ollama, vLLM, Together, Groq — anything that speaks the OpenAI chat completions format, plus native Anthropic support. Route messages to the best model automatically.
-
-**Production-minded.** Atomic file writes. Secret redaction with 30+ patterns. Security guard scanning on agent-authored content. Jittered retry with error classification. Crash safety by default.
-
----
-
-## Features
-
-- **Agentic Loop** — Iterative LLM call → tool dispatch → result → continue/stop with configurable iteration limits, hooks, and streaming
-- **Tool System** — Pluggable `ToolHandler` abstraction with `ToolRegistry` dispatch. 7 built-in tools included
-- **Skill System** — SKILL.md (YAML frontmatter + Markdown) with progressive disclosure, shared skill directories, and a security guard
-- **Agent Home** — Structured directory per agent with identity files (SOUL.md, IDENTITY.md, USER.md), skills, memory, vault, sessions
-- **Persistent Memory** — Hybrid retrieval: BM25 + salience (pinned/importance/access) + recency ranking, with pluggable embeddings
-- **Multi-Agent** — `AgentRuntime` manages multiple agents with `DelegateTool` for inter-agent delegation
-- **Multi-Provider** — OpenAI-compatible and Anthropic providers with `ProviderRegistry` and automatic model routing
-- **Streaming** — Full SSE streaming with tool call assembly, 9 event types, and content deltas
-- **Human-in-the-Loop** — Terminal prompts and web/SSE broker for confirm/choice/text questions and command approval
-- **Agent Communication Protocol** — Call external agents over WebSocket with Ed25519 authentication
-- **Session Persistence** — SQLite-backed per-agent session store with history, usage tracking, and search
-- **Vault** — Filesystem + FTS5 full-text search knowledge base with YAML frontmatter
-- **Secret Redaction** — 30+ patterns for API keys, tokens, connection strings
-- **Error Classification** — Rich taxonomy with 15+ failover reasons mapping to recovery actions
-- **Atomic Writes** — All file mutations use tempfile + rename for crash safety
-
----
-
-## Quick Start
+This guide takes you from a 10-line script to a fully-featured interactive chat agent — the same one in [`examples/tui`](examples/tui). Each step adds one layer.
 
 ### Install
 
@@ -65,39 +35,31 @@ For Anthropic support:
 pip install "loom[anthropic] @ git+https://github.com/NinoCoelho/loom.git"
 ```
 
-For the ACP protocol:
-```bash
-pip install "loom[acp] @ git+https://github.com/NinoCoelho/loom.git"
-```
+---
 
-For MCP (Model Context Protocol) client support:
-```bash
-pip install "loom[mcp] @ git+https://github.com/NinoCoelho/loom.git"
-```
+### Step 1 — Your first agent
 
-For everything (development):
-```bash
-git clone https://github.com/NinoCoelho/loom.git
-cd loom
-pip install -e ".[dev,anthropic,acp,mcp]"
-```
-
-### Minimal Agent
+This is the entire agentic loop. An `Agent` takes a provider, a tool registry, and a config, and runs conversations with `run_turn()`.
 
 ```python
 import asyncio
-from loom import Agent, AgentConfig, ChatMessage, Role, ToolRegistry
+from loom.loop import Agent, AgentConfig
 from loom.llm.openai_compat import OpenAICompatibleProvider
+from loom.tools.registry import ToolRegistry
+from loom.types import ChatMessage, Role
 
 async def main():
     provider = OpenAICompatibleProvider(
-        base_url="http://localhost:11434/v1",
+        base_url="http://localhost:11434/v1",  # or any OpenAI-compatible endpoint
         default_model="llama3",
     )
-    tools = ToolRegistry()
-    config = AgentConfig(system_preamble="You are a helpful assistant.")
 
-    agent = Agent(provider=provider, tool_registry=tools, config=config)
+    agent = Agent(
+        provider=provider,
+        tool_registry=ToolRegistry(),
+        config=AgentConfig(system_preamble="You are a helpful assistant."),
+    )
+
     messages = [ChatMessage(role=Role.USER, content="Hello!")]
     turn = await agent.run_turn(messages)
     print(turn.reply)
@@ -105,10 +67,18 @@ async def main():
 asyncio.run(main())
 ```
 
-### With Tools
+`turn.reply` is the assistant's text. `turn.iterations`, `turn.tool_calls`, `turn.input_tokens`, and `turn.output_tokens` give you telemetry.
+
+---
+
+### Step 2 — Add a tool
+
+Subclass `ToolHandler`, describe the tool with a `ToolSpec`, and implement `invoke()`. Register it with the `ToolRegistry`. The agent will call it automatically when the LLM decides to.
 
 ```python
-from loom import ToolHandler, ToolResult, ToolSpec
+from loom.tools.base import ToolHandler, ToolResult
+from loom.tools.registry import ToolRegistry
+from loom.types import ToolSpec
 
 class WeatherTool(ToolHandler):
     @property
@@ -125,125 +95,190 @@ class WeatherTool(ToolHandler):
 
     async def invoke(self, args: dict) -> ToolResult:
         city = args["city"]
-        return ToolResult(text=f"Weather in {city}: 72F, sunny")
+        return ToolResult(text=f"Weather in {city}: 72°F, sunny")
 
 tools = ToolRegistry()
 tools.register(WeatherTool())
+
+agent = Agent(provider=provider, tool_registry=tools, config=config)
 ```
 
-### With Skills
+Loom handles the full tool call loop: it dispatches your handler, appends the result to the conversation, and keeps iterating until the LLM stops calling tools.
+
+---
+
+### Step 3 — Add memory
+
+`MemoryToolHandler` gives your agent a persistent, searchable memory across sessions. Point it at a directory and register it as a tool — the agent will store and recall memories on its own.
 
 ```python
-from loom import SkillRegistry, SkillManager, SkillGuard
+from pathlib import Path
+from loom.tools.memory import MemoryToolHandler
+
+memory_dir = Path.home() / ".myapp" / "memory"
+tools.register(MemoryToolHandler(memory_dir))
+```
+
+Memory uses hybrid BM25 + salience + recency ranking. The agent decides when to save and recall — you just give it the tool.
+
+---
+
+### Step 4 — Add skills
+
+Skills are Markdown files with YAML frontmatter. The agent can activate them by name to load reusable instructions mid-conversation — without burning them into the system prompt permanently.
+
+```
+~/.myapp/skills/
+  summarize.md
+  code-review.md
+```
+
+```markdown
+---
+name: summarize
+description: How to summarize text clearly and concisely
+---
+
+1. Identify the key points — no more than five.
+2. Write one sentence per point, plain language.
+3. End with a single-sentence takeaway.
+```
+
+```python
+from loom.skills.registry import SkillRegistry
+
+skills_dir = Path.home() / ".myapp" / "skills"
+skills_dir.mkdir(parents=True, exist_ok=True)
+
+skill_registry = SkillRegistry(skills_dir)
+skill_registry.scan()
+
+agent = Agent(
+    provider=provider,
+    tool_registry=tools,
+    skill_registry=skill_registry,
+    config=config,
+)
+```
+
+When the agent activates a skill, its body is injected into the conversation at that point. Skills can also be created, edited, and deleted by the agent itself via `SkillManager`.
+
+---
+
+### Step 5 — Add human-in-the-loop
+
+`AskUserTool` lets the agent pause and ask the user a question. `TerminalTool` lets it run shell commands with approval. Both require you to provide the handler — you own the UI.
+
+```python
+from loom.tools.hitl import AskUserTool, TerminalTool
+
+async def ask_user_handler(kind: str, message: str, choices: list[str] | None) -> str:
+    print(f"\n? {message}")
+    if kind == "confirm":
+        return input("[y/n] > ").strip()
+    elif kind == "choice" and choices:
+        for i, c in enumerate(choices, 1):
+            print(f"  {i}. {c}")
+        idx = int(input("Choice > ").strip()) - 1
+        return choices[idx]
+    return input("> ").strip()
+
+ask_user = AskUserTool(handler=ask_user_handler)
+tools.register(ask_user)
+tools.register(TerminalTool(ask_user))  # TerminalTool uses AskUserTool for approvals
+```
+
+---
+
+### Step 6 — Build a chat loop
+
+Put it together. This is the core pattern behind the full TUI example.
+
+```python
+import asyncio
 from pathlib import Path
 
-skills = SkillRegistry(Path("~/.myapp/skills"))
-skills.scan()
-
-guard = SkillGuard()
-manager = SkillManager(skills, guard)
-
-result = manager.invoke({
-    "action": "create",
-    "name": "greet",
-    "description": "How to greet users",
-    "body": "1. Say hello warmly\n2. Ask how you can help",
-})
-```
-
-### Multi-Provider with Routing
-
-```python
+from loom.loop import Agent, AgentConfig
 from loom.llm.openai_compat import OpenAICompatibleProvider
-from loom.llm.registry import ProviderRegistry
-from loom.routing.router import choose_model, ModelStrengths
+from loom.skills.registry import SkillRegistry
+from loom.tools.hitl import AskUserTool, TerminalTool
+from loom.tools.memory import MemoryToolHandler
+from loom.tools.registry import ToolRegistry
+from loom.types import ChatMessage, Role
 
-registry = ProviderRegistry()
-registry.register("fast", OpenAICompatibleProvider("http://localhost:11434/v1", default_model="llama3"), "llama3")
-registry.register("smart", OpenAICompatibleProvider("https://api.openai.com/v1", api_key="...", default_model="gpt-4o"), "gpt-4o")
+APP_DIR = Path.home() / ".myapp"
 
-strengths = {
-    "fast": ModelStrengths(speed=10, cost=10, reasoning=3, coding=5),
-    "smart": ModelStrengths(speed=3, cost=2, reasoning=10, coding=10),
-}
+async def ask_user_handler(kind: str, message: str, choices: list[str] | None) -> str:
+    print(f"\n? {message}")
+    if kind == "confirm":
+        return input("[y/n] > ").strip()
+    elif kind == "choice" and choices:
+        for i, c in enumerate(choices, 1):
+            print(f"  {i}. {c}")
+        return choices[int(input("Choice > ").strip()) - 1]
+    return input("> ").strip()
 
-best = choose_model("Explain why this code fails: def foo(): pass", registry, strengths)
+async def main():
+    provider = OpenAICompatibleProvider(
+        base_url="http://localhost:11434/v1",
+        default_model="llama3",
+    )
+
+    tools = ToolRegistry()
+    tools.register(MemoryToolHandler(APP_DIR / "memory"))
+    ask_user = AskUserTool(handler=ask_user_handler)
+    tools.register(ask_user)
+    tools.register(TerminalTool(ask_user))
+
+    skills_dir = APP_DIR / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    skill_registry = SkillRegistry(skills_dir)
+    skill_registry.scan()
+
+    agent = Agent(
+        provider=provider,
+        tool_registry=tools,
+        skill_registry=skill_registry,
+        config=AgentConfig(system_preamble="You are a helpful assistant."),
+    )
+
+    history: list[ChatMessage] = []
+    print("Type 'quit' to exit.\n")
+
+    while True:
+        user_input = input("You> ").strip()
+        if not user_input or user_input.lower() in ("quit", "exit", "q"):
+            break
+
+        history.append(ChatMessage(role=Role.USER, content=user_input))
+        turn = await agent.run_turn(history)
+        history.append(ChatMessage(role=Role.ASSISTANT, content=turn.reply))
+
+        print(f"\nAssistant: {turn.reply}\n")
+
+asyncio.run(main())
 ```
 
-### Multi-Agent Setup
-
-```python
-from loom import AgentRuntime, AgentConfig, AgentPermissions
-
-runtime = AgentRuntime()
-
-supervisor = runtime.create_agent(
-    "supervisor",
-    AgentConfig(model="gpt-4o"),
-    AgentPermissions(user_writable=True, delegate_allowed=True),
-)
-
-coder = runtime.create_agent(
-    "coder",
-    AgentConfig(model="gpt-4o"),
-    AgentPermissions(skills_creatable=True, terminal_allowed=True),
-)
-```
-
-### Agent Home Structure
-
-```
-~/.loom/
-  shared-skills/           # Skills shared across all agents
-  agents/
-    supervisor/
-      SOUL.md              # Purpose and values
-      IDENTITY.md          # Name, role, tone
-      USER.md              # Learned user preferences
-      skills/              # Agent's own skills
-      memory/              # Structured searchable memory
-      vault/               # Knowledge base
-      sessions.sqlite      # Per-agent session store
-```
+That's a fully working persistent agent with memory, skills, and human-in-the-loop support — under 60 lines.
 
 ---
 
-## Architecture
+## What's next
 
-Loom is organized as 14 composable subsystems. Use what you need, ignore the rest.
+The steps above cover the most common patterns. Loom has more:
 
-| Subsystem | Module | Purpose |
-|---|---|---|
-| Agentic Loop | `loom.loop` | Iterative LLM call → tool dispatch → result → continue/stop |
-| Tool System | `loom.tools` | Pluggable `ToolHandler` with registry dispatch |
-| Skill System | `loom.skills` | Markdown-based skills with progressive disclosure and security guard |
-| LLM Providers | `loom.llm` | OpenAI-compatible and Anthropic providers with registry |
-| Streaming | `loom.types` | 9 event types for SSE streaming with tool call assembly |
-| HITL | `loom.hitl` | Terminal prompts and web/SSE broker for human approvals |
-| Memory | `loom.store.memory` | Hybrid BM25 + salience + recency retrieval with pluggable embeddings |
-| Stores | `loom.store` | Session (SQLite), Vault (FTS5), Secrets (JSON) — all with atomic writes |
-| Agent Home | `loom.home` | Structured per-agent directory with identity files |
-| Multi-Agent | `loom.runtime` | AgentRuntime for multi-agent lifecycle and delegation |
-| ACP | `loom.acp` | WebSocket inter-agent communication with Ed25519 auth |
-| MCP | `loom.mcp` | Model Context Protocol client — register external MCP tools with a ToolRegistry |
-| Server | `loom.server` | FastAPI factory with chat, streaming, session, and skill endpoints |
-| Routing | `loom.routing` | Message classification and model selection |
-| Config | `loom.config` | JSON config with CLI/env overlay resolution |
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation covering every subsystem, data flow diagrams, and design principles.
-
-See [docs/API.md](docs/API.md) for the complete API reference with type signatures for every public class, method, and function.
-
----
-
-## Documentation
-
-| Document | Description |
+| What | Where |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Detailed design docs for all 14 subsystems with data flow |
-| [docs/API.md](docs/API.md) | Complete API reference with type signatures |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, code style, and how to contribute |
-| [CHANGELOG.md](CHANGELOG.md) | Version history in Keep-a-Changelog format |
+| Full TUI with rich formatting and history | [`examples/tui`](examples/tui) |
+| Anthropic Claude provider | `loom.llm.anthropic` |
+| Multi-agent runtime with delegation | `loom.runtime` |
+| FastAPI server with SSE streaming | `loom.server` |
+| Agent Communication Protocol (WebSocket) | `loom.acp` |
+| MCP client (external tool servers) | `loom.mcp` |
+| Multi-provider registry with model routing | `loom.llm.registry`, `loom.routing` |
+| Agent home (identity files, vault, sessions) | `loom.home` |
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation and [docs/API.md](docs/API.md) for the complete API reference.
 
 ---
 
@@ -254,17 +289,12 @@ git clone https://github.com/NinoCoelho/loom.git
 cd loom
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev,anthropic]"
+pip install -e ".[dev,anthropic,acp,mcp]"
 ```
 
-**Run tests:**
 ```bash
-pytest
-```
-
-**Lint:**
-```bash
-ruff check src/
+pytest          # run tests
+ruff check src/ # lint
 ruff format src/
 ```
 
@@ -274,46 +304,13 @@ ruff format src/
 
 <p align="center"><strong>Loom is in early alpha. We need your help to make it great.</strong></p>
 
-This is the ground floor. Loom has a solid architectural foundation — 14 subsystems, ~9,000 lines of Python, 16 test files — but the most important work is still ahead. Here's where you can make a real impact:
+- **Build something.** The best feedback comes from real use cases. Try it, break it, tell us what's missing.
+- **Add a provider.** Gemini, Mistral, Cohere — implement `LLMProvider.chat()` and `chat_stream()`.
+- **Add tools.** File operations, database queries, code execution sandboxes. Every `ToolHandler` is a PR.
+- **Stress the runtime.** Spin up multi-agent delegation chains and find the limits.
+- **Audit security.** Review `SkillGuard` patterns, secret redaction regexes, and path traversal prevention.
 
-### Test It Against Real Workflows
-
-The framework works for the patterns we've built. Does it work for yours? We're looking for people to:
-
-- **Build agents with Loom** and tell us what's missing, awkward, or broken. The best feedback comes from real use cases, not synthetic benchmarks.
-- **Try different LLM providers** — we've tested OpenAI, Anthropic, and Ollama. Help us validate vLLM, Together, Groq, LM Studio, and others.
-- **Stress the multi-agent runtime** — spin up 3, 5, 10 agents with delegation chains. Find the limits.
-- **Test the memory system** — throw real data at `MemoryStore.recall()`. Does hybrid BM25 + salience ranking actually surface the right memories?
-
-### Extend It
-
-- **New tools** — File system operations, database queries, web scraping, code execution sandboxes. Every `ToolHandler` is a PR.
-- **New providers** — Google Gemini, Mistral, Cohere. Implement `LLMProvider.chat()` and `chat_stream()`.
-- **Embedding providers** — Wire in sentence-transformers, OpenAI embeddings, or your own model for better memory recall.
-- **Server integrations** — WebSocket support, authentication middleware, rate limiting, production deployment guides.
-
-### Harden It
-
-- **CI/CD** — We don't have it yet. Help set up GitHub Actions for testing, linting, and publishing.
-- **Error handling edge cases** — The error taxonomy covers 15+ scenarios. Real-world failures always find new ones.
-- **Security review** — Audit the SkillGuard patterns, secret redaction regexes, and path traversal prevention.
-- **Performance benchmarks** — Profile the agentic loop, memory recall, and streaming pipeline under load.
-
-### Why Contribute?
-
-- **You'll shape the API.** Early contributors have outsized influence on naming, patterns, and conventions.
-- **Real systems engineering.** Loom touches async Python, SQLite, HTTP clients, WebSocket protocols, cryptography, LLM APIs, and streaming — it's a genuine systems project, not another wrapper.
-- **Your agents get better.** If you're building agentic applications, contributing to the framework means your own tools improve.
-- **Apache 2.0 licensed, no CLA.** Fork it, use it, contribute back if you want.
-
-### How to Start
-
-1. Read [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup
-2. Browse [ARCHITECTURE.md](ARCHITECTURE.md) to understand the subsystems
-3. Pick an issue (or open one describing what you want to build)
-4. Join the conversation — PRs, issues, and discussions are all welcome
-
-**Every bug report, feature request, and "I tried this and it didn't work" story is valuable.** Open an issue. We're listening.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) to get started. Open an issue. Every bug report and "I tried this and it didn't work" story is valuable.
 
 ---
 
