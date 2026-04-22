@@ -226,16 +226,25 @@ class MemoryStore:
     # ── schema ──────────────────────────────────────────────────────
 
     def _init_fts5(self) -> bool:
-        try:
-            self._db.execute("""
-                CREATE TABLE IF NOT EXISTS memory_fts USING fts5(
-                    key, category, content,
-                    tokenize='porter unicode61'
-                )
-            """)
-            self._db.commit()
-            return True
-        except sqlite3.OperationalError:
+        has_fts5_table = self._table_exists("memory_fts")
+        has_content_table = self._table_exists("memory_content")
+
+        if not has_fts5_table:
+            try:
+                self._db.execute("""
+                    CREATE VIRTUAL TABLE memory_fts USING fts5(
+                        key, category, content,
+                        tokenize='porter unicode61'
+                    )
+                """)
+                self._db.commit()
+                has_fts5_table = True
+            except sqlite3.OperationalError:
+                pass
+
+        if has_fts5_table and has_content_table:
+            self._migrate_content_to_fts5()
+        elif not has_fts5_table and not has_content_table:
             self._db.execute("""
                 CREATE TABLE IF NOT EXISTS memory_content (
                     key TEXT,
@@ -244,7 +253,29 @@ class MemoryStore:
                 )
             """)
             self._db.commit()
-            return False
+
+        return has_fts5_table
+
+    def _table_exists(self, name: str) -> bool:
+        rows = self._db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (name,),
+        ).fetchall()
+        return len(rows) > 0
+
+    def _migrate_content_to_fts5(self) -> None:
+        rows = self._db.execute(
+            "SELECT key, category, content FROM memory_content"
+        ).fetchall()
+        if not rows:
+            return
+        for key, category, content in rows:
+            self._db.execute(
+                "INSERT OR REPLACE INTO memory_fts (key, category, content) "
+                "VALUES (?, ?, ?)",
+                (key, category, content[:5000] if content else ""),
+            )
+        self._db.commit()
 
     def _migrate_salience_columns(self) -> None:
         """Idempotently add salience columns to pre-existing DBs."""

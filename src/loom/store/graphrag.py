@@ -598,17 +598,22 @@ class GraphRAGEngine:
             for eid in all_entity_ids:
                 ent = self._entity_graph.get_entity(eid)
                 if ent:
+                    degree = self._entity_graph.entity_degree(eid)
                     subgraph_nodes.append({
                         "id": ent.id, "name": ent.name, "type": ent.type,
+                        "degree": degree,
                     })
-            seed_eid = next(iter(all_entity_ids))
-            triples = self._entity_graph.get_entity_triples(seed_eid)
-            for t in triples:
-                if t.head_id in all_entity_ids and t.tail_id in all_entity_ids:
-                    subgraph_edges.append({
-                        "source": t.head_id, "target": t.tail_id,
-                        "relation": t.relation, "strength": t.strength,
-                    })
+            seen_triple_ids: set[int] = set()
+            for eid in all_entity_ids:
+                for t in self._entity_graph.get_entity_triples(eid):
+                    if t.id in seen_triple_ids:
+                        continue
+                    seen_triple_ids.add(t.id)
+                    if t.head_id in all_entity_ids and t.tail_id in all_entity_ids:
+                        subgraph_edges.append({
+                            "source": t.head_id, "target": t.tail_id,
+                            "relation": t.relation, "strength": t.strength,
+                        })
 
         return EnrichedRetrieval(
             results=results, trace=trace,
