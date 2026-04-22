@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +34,11 @@ from loom.types import (
     ToolExecStartEvent,
     ToolSpec,
 )
+
+if TYPE_CHECKING:
+    from loom.store.graphrag import GraphRAGEngine
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_AFFIRMATIVES = frozenset(
     {
@@ -162,6 +168,7 @@ class Agent:
         agent_home: AgentHome | None = None,
         permissions: AgentPermissions | None = None,
         memory_store: MemoryStore | None = None,
+        graphrag: GraphRAGEngine | None = None,
     ) -> None:
         self._provider = provider
         self._provider_registry = provider_registry
@@ -172,6 +179,7 @@ class Agent:
         self._home = agent_home
         self._permissions = permissions
         self._memory = memory_store
+        self._graphrag = graphrag
 
     @property
     def home(self) -> AgentHome | None:
@@ -248,6 +256,38 @@ class Agent:
         if len(segment) > 500:
             segment = segment[-500:]
         return segment.strip()
+
+    async def _graphrag_enrich(
+        self, messages: list[ChatMessage]
+    ) -> list[ChatMessage]:
+        if self._graphrag is None:
+            return messages
+        user_text = ""
+        for msg in reversed(messages):
+            if msg.role == Role.USER and msg.content:
+                user_text = msg.content
+                break
+        if not user_text:
+            return messages
+        try:
+            results = await self._graphrag.retrieve(user_text)
+            context = self._graphrag.format_context(results)
+        except Exception:
+            logger.warning("graphrag retrieve/format failed", exc_info=True)
+            return messages
+        if not context:
+            return messages
+        enriched = list(messages)
+        for i, msg in enumerate(enriched):
+            if msg.role == Role.SYSTEM:
+                enriched[i] = ChatMessage(
+                    role=Role.SYSTEM,
+                    content=msg.content + "\n\n" + context,
+                )
+                break
+        else:
+            enriched.insert(0, ChatMessage(role=Role.SYSTEM, content=context))
+        return enriched
 
     def _annotate_short_reply(self, user_text: str) -> str | None:
         stripped = user_text.strip().lower()
@@ -337,6 +377,12 @@ class Agent:
         total_input = 0
         total_output = 0
         total_tool_calls = 0
+
+        if self._graphrag is not None:
+            try:
+                all_messages = await self._graphrag_enrich(all_messages)
+            except Exception:
+                logger.warning("graphrag enrichment failed", exc_info=True)
 
         for iteration in range(self._config.max_iterations):
             if self._config.before_llm_call is not None:
@@ -475,6 +521,12 @@ class Agent:
         total_input = 0
         total_output = 0
         total_tool_calls = 0
+
+        if self._graphrag is not None:
+            try:
+                all_messages = await self._graphrag_enrich(all_messages)
+            except Exception:
+                logger.warning("graphrag enrichment failed", exc_info=True)
 
         for iteration in range(self._config.max_iterations):
             if self._config.before_llm_call is not None:

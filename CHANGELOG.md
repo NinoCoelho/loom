@@ -8,7 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- `loom.heartbeat` subpackage: file-based recurring task scheduler. Each heartbeat is a directory with a `HEARTBEAT.md` (frontmatter metadata + agent instructions) and a `driver.py` (a `Driver(HeartbeatDriver)` class that implements `check(state) -> (events, new_state)`). `HeartbeatScheduler` runs as a background asyncio task, ticks enabled heartbeats on their schedule, and invokes the agent once per returned event. State is persisted between ticks in SQLite via `HeartbeatStore` (WAL mode, keyed by `(heartbeat_id, instance_id)`). `HeartbeatToolHandler` exposes a `manage_heartbeat` tool so agents can create and manage their own recurring tasks at runtime. Schedules support natural language (`"every 5 minutes"`), cron shorthands (`@daily`, `@hourly`), and 5-field cron. Optional `SessionStore` integration records each agent invocation as a titled session for observability.
+- `loom.store.graphrag` subpackage: GraphRAG engine for knowledge-graph-augmented retrieval. `GraphRAGEngine` orchestrates markdown chunking (`chunk_markdown`), embedding + vector storage (`VectorStore`), entity/relationship extraction via LLM with gleaning (`EntityGraph`), and hybrid retrieval (vector similarity + multi-hop graph expansion). Context is injected into the agent loop via `_graphrag_enrich()`. Fully opt-in — pass a `GraphRAGEngine` to `Agent(graphrag=...)` or leave it `None` (default) for no change in behavior.
+
+- `loom.store.vector` — `VectorStore`: SQLite-backed vector store. Float32 vectors packed as BLOBs, brute-force cosine similarity search. numpy-accelerated batch cosine with pure-Python fallback. Public API: `upsert / remove / search / get / get_embedding / count / sources`.
+
+- `loom.store.graph` — `EntityGraph`: SQLite-backed entity-relationship graph. Entities with `(name, type)` canonical keys, directed typed triples with evidence tracking, alias resolution, multi-hop neighbor traversal, orphan cleanup.
+
+- `loom.store.embeddings` — `OllamaEmbeddingProvider` and `OpenAIEmbeddingProvider`: async HTTP clients for embedding APIs (Ollama `/api/embed` and OpenAI-compatible `/v1/embeddings`). Batch support with configurable chunk size.
+
+- `MemoryStore` hybrid recall now supports an optional vector similarity component. When an `EmbeddingProvider` is wired in, query and stored embeddings are compared via cosine similarity and blended into the recall score alongside BM25, salience, and recency. Weights: BM25 0.35, salience 0.25, recency 0.10, vector 0.30. Without an embedder, the original weights (0.55/0.30/0.15) are used.
+
+- New optional extra: `pip install "loom[graphrag]"` (depends on `numpy>=1.26`).
+
+### Fixed
+
+- GraphRAG enrichment now runs once per `run()`/`run_stream()` call instead of on every loop iteration, preventing duplicate context accumulation in the system prompt.
+- GraphRAG retrieval uses `VectorStore.get_embedding()` public API instead of reaching into internal `_db` attribute.
+- Bare `except Exception: pass` blocks in the agent loop now log warnings for debuggability.
+- Memory recall fallback weights are named constants (`_W_BM25_NOVEC`, `_W_SALIENCE_NOVEC`, `_W_RECENCY_NOVEC`) instead of inline magic numbers.
 
 - `loom.mcp` subpackage: MCP (Model Context Protocol) client integration. `McpServerConfig`, `McpClient` (async context manager for stdio/SSE transports), and `McpToolHandler` let agents register and call tools exposed by external MCP servers.
 - New optional extra: `pip install "loom[mcp]"` (depends on the official `mcp` SDK).

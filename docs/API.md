@@ -110,6 +110,10 @@ class Agent:
         tool_registry: ToolRegistry | None = None,
         skill_registry: SkillRegistry | None = None,
         config: AgentConfig | None = None,
+        agent_home: AgentHome | None = None,
+        permissions: AgentPermissions | None = None,
+        memory_store: MemoryStore | None = None,
+        graphrag: GraphRAGEngine | None = None,
     ): ...
 
     async def run_turn(
@@ -949,6 +953,225 @@ class RecallHit(BaseModel):
     score: float
     source: str  # "bm25" | "salience" | "recency" | "hybrid"
 ```
+
+---
+
+## GraphRAG (`loom.store.graphrag`)
+
+Fully opt-in knowledge-graph-augmented retrieval. Pass a `GraphRAGEngine` to `Agent(graphrag=...)` or leave it `None` (default) for no change in behavior.
+
+### `GraphRAGEngine`
+
+```python
+class GraphRAGEngine:
+    def __init__(
+        self,
+        config: GraphRAGConfig,
+        embedding_provider: EmbeddingProvider,
+        *,
+        db_dir: Path,
+        llm_provider: LLMProvider | None = None,
+    ): ...
+
+    async def index_source(self, path: str, content: str) -> None: ...
+    async def index_vault(self, vault: VaultStore) -> None: ...
+    async def retrieve(self, query: str, *, top_k: int | None = None, max_hops: int | None = None) -> list[RetrievalResult]: ...
+    def format_context(self, results: list[RetrievalResult], budget: int | None = None) -> str: ...
+    def chunk_text(self, text: str, source_path: str) -> list[Chunk]: ...
+    def close(self) -> None: ...
+```
+
+Context manager supported (`with GraphRAGEngine(...) as engine:`).
+
+### `GraphRAGConfig`
+
+```python
+@dataclass
+class GraphRAGConfig:
+    enabled: bool = False
+    embeddings: EmbeddingConfig = field(default_factory=EmbeddingConfig)
+    extraction: ExtractionConfig = field(default_factory=ExtractionConfig)
+    ontology: OntologyConfig = field(default_factory=OntologyConfig)
+    max_hops: int = 2
+    context_budget: int = 3000
+    top_k: int = 10
+    chunk_size: int = 1000
+    chunk_overlap: int = 100
+```
+
+### `EmbeddingConfig`
+
+```python
+@dataclass
+class EmbeddingConfig:
+    provider: str = "ollama"
+    model: str = "nomic-embed-text"
+    base_url: str = "http://localhost:11434"
+    key_env: str = ""
+    dimensions: int = 768
+```
+
+### `ExtractionConfig`
+
+```python
+@dataclass
+class ExtractionConfig:
+    model: str | None = None
+    max_gleanings: int = 1
+```
+
+### `OntologyConfig`
+
+```python
+@dataclass
+class OntologyConfig:
+    entity_types: list[str] = ["person", "project", "concept", "technology", "decision", "resource"]
+    core_relations: list[str] = ["uses", "depends_on", "part_of", "created_by", "related_to"]
+    allow_custom_relations: bool = True
+    aliases: dict[str, list[str]] = {}
+```
+
+### `Chunk`
+
+```python
+@dataclass
+class Chunk:
+    id: str
+    source_path: str
+    heading: str
+    content: str
+    char_offset: int
+```
+
+### `RetrievalResult`
+
+```python
+@dataclass
+class RetrievalResult:
+    chunk_id: str
+    source_path: str
+    heading: str
+    content: str
+    score: float
+    source: str  # "vector" | "graph"
+    related_entities: list[str] = []
+```
+
+### `chunk_markdown`
+
+```python
+def chunk_markdown(
+    text: str, source_path: str, *, max_size: int = 1000, overlap: int = 100
+) -> list[Chunk]: ...
+```
+
+Splits markdown text on headings, merges small sections, splits large ones with overlap. Deterministic chunk IDs via SHA-256.
+
+---
+
+## Vector Store (`loom.store.vector`)
+
+SQLite-backed vector store for embedding storage and cosine similarity search.
+
+### `VectorStore`
+
+```python
+class VectorStore:
+    def __init__(self, db_path: Path, dim: int = 768): ...
+    def upsert(self, id: str, embedding: list[float], *, source: str = "", metadata: dict | None = None) -> None: ...
+    def remove(self, id: str) -> None: ...
+    def remove_for_source(self, source: str) -> int: ...
+    def search(self, query_embedding: list[float], *, top_k: int = 20, source_filter: str | None = None) -> list[VectorHit]: ...
+    def get(self, id: str) -> VectorHit | None: ...
+    def get_embedding(self, id: str) -> list[float] | None: ...
+    def count(self) -> int: ...
+    def sources(self) -> list[str]: ...
+    def close(self) -> None: ...
+```
+
+### `VectorHit`
+
+```python
+@dataclass
+class VectorHit:
+    id: str
+    source: str
+    score: float
+    metadata: dict = {}
+```
+
+---
+
+## Entity Graph (`loom.store.graph`)
+
+SQLite-backed entity-relationship graph with multi-hop traversal.
+
+### `EntityGraph`
+
+```python
+class EntityGraph:
+    def __init__(self, db_path: Path): ...
+    def resolve_entity(self, name: str, type: str, aliases: dict | None = None) -> int: ...
+    def get_entity(self, entity_id: int) -> Entity | None: ...
+    def find_entity(self, name: str, type: str) -> Entity | None: ...
+    def add_triple(self, head_id: int, relation: str, tail_id: int, chunk_id: str, description: str = "", strength: float = 5.0) -> None: ...
+    def add_mention(self, entity_id: int, chunk_id: str) -> None: ...
+    def entities_for_chunk(self, chunk_id: str) -> list[Entity]: ...
+    def chunks_for_entity(self, entity_id: int) -> list[str]: ...
+    def neighbors(self, entity_id: int, max_hops: int = 2) -> list[Entity]: ...
+    def remove_for_chunks(self, chunk_ids: list[str]) -> None: ...
+    def count_entities(self) -> int: ...
+    def count_triples(self) -> int: ...
+    def close(self) -> None: ...
+```
+
+### `Entity`
+
+```python
+@dataclass
+class Entity:
+    id: int
+    name: str
+    type: str
+    canonical: str
+    description: str = ""
+```
+
+### `Triple`
+
+```python
+@dataclass
+class Triple:
+    id: int
+    head_id: int
+    relation: str
+    tail_id: int
+    chunk_id: str
+    description: str = ""
+    strength: float = 5.0
+```
+
+---
+
+## Embedding Providers (`loom.store.embeddings`)
+
+### `OllamaEmbeddingProvider`
+
+```python
+class OllamaEmbeddingProvider:
+    def __init__(self, model: str = "nomic-embed-text", base_url: str = "http://localhost:11434", dim: int = 768, timeout: float = 60.0): ...
+    async def embed(self, texts: list[str]) -> list[list[float]]: ...
+```
+
+### `OpenAIEmbeddingProvider`
+
+```python
+class OpenAIEmbeddingProvider:
+    def __init__(self, model: str = "text-embedding-3-small", base_url: str = "https://api.openai.com/v1", key_env: str = "OPENAI_API_KEY", dim: int = 1536, timeout: float = 60.0): ...
+    async def embed(self, texts: list[str]) -> list[list[float]]: ...
+```
+
+API key resolved from the environment variable named by `key_env`. If `key_env` is empty, requests are made without authentication.
 
 ---
 

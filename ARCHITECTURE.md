@@ -302,7 +302,7 @@ For web/SSE integrations where the agent can't directly prompt a terminal user.
 
 Beyond simple search, `MemoryStore.recall()` provides hybrid retrieval:
 
-**Scoring:** BM25 (FTS5) + salience (pinned/importance/access_count) + recency, blended into a single rank score.
+**Scoring:** BM25 (FTS5) + salience (pinned/importance/access_count) + recency + optional vector similarity, blended into a single rank score.
 
 **Salience signals:**
 - `pinned` -- always promoted to top results
@@ -316,7 +316,7 @@ class EmbeddingProvider(Protocol):
     dim: int
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 ```
-When wired in, vector similarity is added to the hybrid score. Default is pure BM25+salience.
+When wired in, vector similarity is blended into the hybrid score (weight 0.30). Weights with embeddings: BM25 0.35, salience 0.25, recency 0.10, vector 0.30. Without an embedder: BM25 0.55, salience 0.30, recency 0.15.
 
 **Memory preview** -- top 5 recent memories auto-injected into system prompt (1500 char budget).
 
@@ -422,6 +422,34 @@ scheduler = HeartbeatScheduler(registry, store, run_fn=make_run_fn(agent))
 scheduler.start()  # background asyncio.Task
 ```
 
+### 17. GraphRAG (`loom.store.graphrag`)
+
+Graph-based Retrieval-Augmented Generation. Fully opt-in — pass a `GraphRAGEngine` to `Agent(graphrag=...)` or leave it `None` (default).
+
+**Components:**
+
+| Module | Class | Role |
+|---|---|---|
+| `store.vector` | `VectorStore` | SQLite-backed vector store; float32 BLOBs, brute-force cosine search |
+| `store.graph` | `EntityGraph` | SQLite-backed entity-relationship graph; multi-hop BFS traversal |
+| `store.embeddings` | `OllamaEmbeddingProvider` / `OpenAIEmbeddingProvider` | Async embedding API clients |
+| `store.graphrag` | `GraphRAGEngine` | Orchestrator: chunking, indexing, extraction, retrieval, context formatting |
+
+**Pipeline:**
+
+1. **Chunking** — `chunk_markdown()` splits text on headings, merges small sections, and splits large ones with overlap. Deterministic chunk IDs via SHA-256.
+2. **Embedding + indexing** — chunks are embedded and stored in `VectorStore`. Source-level replacement (re-indexing a path removes old chunks first).
+3. **Entity extraction** (optional, requires `llm_provider`) — an LLM extracts entities and relationships from each chunk using a structured JSON prompt. Supports gleaning (re-prompting for missed entities). Results are stored in `EntityGraph` with mention tracking and alias resolution.
+4. **Hybrid retrieval** — vector similarity search finds top chunks; graph expansion adds related chunks via multi-hop entity neighbors. Results are scored and deduplicated.
+5. **Context injection** — `format_context()` assembles results into a Markdown block within a configurable character budget. The agent loop appends this to the system message once per `run()`/`run_stream()` call.
+
+**Usage levels (all opt-in):**
+- No GraphRAG — default, no overhead.
+- Vector search only — embedder without LLM provider.
+- Full GraphRAG — embedder + LLM for entity extraction.
+
+**New optional extra:** `pip install "loom[graphrag]"` (numpy>=1.26 for accelerated batch cosine similarity; pure-Python fallback when absent).
+
 ---
 
 ## Data Flow
@@ -434,6 +462,7 @@ Agent.run_turn(messages, context)
     |
     |-- Build system prompt (preamble + identity + memory preview + skill catalog + pending question)
     |-- Annotate short replies (yes/no + pending question)
+    |-- (optional) GraphRAG enrich: retrieve relevant context, inject into system message
     |
     v
 LOOP (max_iterations):

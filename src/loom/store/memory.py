@@ -28,6 +28,8 @@ from typing import Any, Protocol, runtime_checkable
 import yaml
 
 from loom.store.atomic import atomic_write
+from loom.store.embeddings import _cosine_similarity
+from loom.store.vector import _pack_vector, _unpack_vector
 
 # ── Embedding provider protocol (optional) ──────────────────────────────
 
@@ -137,9 +139,14 @@ _SALIENCE_COLUMNS: dict[str, str] = {
 
 # Weights for the hybrid recall score. Stay inside [0, 1]; they don't
 # have to sum to 1 but it makes the score interpretable.
-_W_BM25 = 0.55
-_W_SALIENCE = 0.30
-_W_RECENCY = 0.15
+_W_BM25 = 0.35
+_W_SALIENCE = 0.25
+_W_RECENCY = 0.10
+_W_VECTOR = 0.30
+
+_W_BM25_NOVEC = 0.55
+_W_SALIENCE_NOVEC = 0.30
+_W_RECENCY_NOVEC = 0.15
 
 # Recency half-life — older entries decay exponentially with this
 # characteristic time (days). 14 days matches Nexus's working-memory
@@ -189,6 +196,13 @@ class MemoryStore:
         """)
         self._db.commit()
         self._migrate_salience_columns()
+        self._db.execute("""
+            CREATE TABLE IF NOT EXISTS memory_vectors (
+                key TEXT PRIMARY KEY,
+                embedding BLOB NOT NULL
+            )
+        """)
+        self._db.commit()
         self._embedder = embedding_provider
 
     def close(self) -> None:
@@ -374,6 +388,18 @@ class MemoryStore:
         importance: int = 1,
     ) -> None:
         self._write_file(key, content, category, tags or [], pinned=pinned, importance=importance)
+        if self._embedder is not None:
+            try:
+                embeds = await self._embedder.embed([content[:2000]])
+                if embeds:
+                    blob = _pack_vector(embeds[0])
+                    self._db.execute(
+                        "INSERT OR REPLACE INTO memory_vectors (key, embedding) VALUES (?, ?)",
+                        (key, blob),
+                    )
+                    self._db.commit()
+            except Exception:
+                pass
 
     async def read(self, key: str) -> MemoryEntry | None:
         return self._read_file(key)
@@ -388,6 +414,7 @@ class MemoryStore:
         else:
             self._db.execute("DELETE FROM memory_content WHERE key = ?", (key,))
         self._db.execute("DELETE FROM memory_meta WHERE key = ?", (key,))
+        self._db.execute("DELETE FROM memory_vectors WHERE key = ?", (key,))
         self._db.commit()
         return True
 
@@ -539,6 +566,9 @@ class MemoryStore:
     ) -> list[RecallHit]:
         """Retrieve memories most relevant to ``query`` via BM25 + salience + recency.
 
+        When an :class:`EmbeddingProvider` is configured, the query is
+        embedded and vector similarity is blended into the hybrid score.
+
         Returns up to ``limit`` hits ranked by a blended score. The
         ``candidate_pool`` knob controls how many BM25 candidates feed
         into the rerank — larger pools reduce the chance salience /
@@ -552,7 +582,17 @@ class MemoryStore:
         candidates = await self._bm25_candidates(query, candidate_pool)
         if not candidates:
             return []
-        hits = self._rerank(candidates)
+
+        query_embedding: list[float] | None = None
+        if self._embedder is not None:
+            try:
+                embeds = await self._embedder.embed([query])
+                if embeds:
+                    query_embedding = embeds[0]
+            except Exception:
+                pass
+
+        hits = self._rerank(candidates, query_embedding=query_embedding)
         top = hits[:limit]
         if budget is not None:
             bounded: list[RecallHit] = []
@@ -585,7 +625,12 @@ class MemoryStore:
             ).fetchall()
         return [{"key": r[0], "category": r[1], "snippet": r[2], "bm25": r[3]} for r in rows]
 
-    def _rerank(self, candidates: list[dict[str, Any]]) -> list[RecallHit]:
+    def _rerank(
+        self,
+        candidates: list[dict[str, Any]],
+        *,
+        query_embedding: list[float] | None = None,
+    ) -> list[RecallHit]:
         # FTS5 rank is negative, lower=better. Turn it into a positive
         # score in [0, 1] normalised against the worst rank in the pool.
         ranks = [c["bm25"] for c in candidates]
@@ -605,18 +650,44 @@ class MemoryStore:
 
             salience = self._salience(entry)
             recency = self._recency(entry, now)
-            score = _W_BM25 * bm25_norm + _W_SALIENCE * salience + _W_RECENCY * recency
+
+            vector_score = 0.0
+            components: dict[str, float] = {
+                "bm25": bm25_norm,
+                "salience": salience,
+                "recency": recency,
+            }
+            if query_embedding is not None and self._embedder is not None:
+                vec_blob = self._db.execute(
+                    "SELECT embedding FROM memory_vectors WHERE key = ?",
+                    (cand["key"],),
+                ).fetchone()
+                if vec_blob:
+                    stored_vec = _unpack_vector(vec_blob[0])
+                    vector_score = _cosine_similarity(query_embedding, stored_vec)
+                    components["vector"] = vector_score
+
+            if query_embedding is not None and self._embedder is not None:
+                score = (
+                    _W_BM25 * bm25_norm
+                    + _W_SALIENCE * salience
+                    + _W_RECENCY * recency
+                    + _W_VECTOR * vector_score
+                )
+            else:
+                score = (
+                    _W_BM25_NOVEC * bm25_norm
+                    + _W_SALIENCE_NOVEC * salience
+                    + _W_RECENCY_NOVEC * recency
+                )
+
             hits.append(
                 RecallHit(
                     key=entry.key,
                     category=entry.category,
                     preview=entry.content[:300],
                     score=score,
-                    components={
-                        "bm25": bm25_norm,
-                        "salience": salience,
-                        "recency": recency,
-                    },
+                    components=components,
                 )
             )
         hits.sort(key=lambda h: h.score, reverse=True)

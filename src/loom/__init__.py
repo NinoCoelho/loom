@@ -63,6 +63,15 @@ from loom.skills.guard import SkillGuard
 from loom.skills.manager import SkillManager
 from loom.skills.registry import SkillRegistry
 from loom.skills.types import Skill, SkillGuardVerdict, SkillMetadata
+from loom.store.embeddings import OllamaEmbeddingProvider, OpenAIEmbeddingProvider
+from loom.store.graph import Entity, EntityGraph, Triple
+from loom.store.graphrag import (
+    Chunk,
+    GraphRAGConfig,
+    GraphRAGEngine,
+    RetrievalResult,
+    chunk_markdown,
+)
 from loom.store.keychain import KeychainStore
 from loom.store.memory import MemoryEntry, MemoryStore
 from loom.store.secrets import (
@@ -80,6 +89,7 @@ from loom.store.secrets import (
     SshPrivateKeySecret,
 )
 from loom.store.vault import FilesystemVaultProvider, VaultProvider
+from loom.store.vector import VectorHit, VectorStore
 from loom.tools.base import ToolHandler, ToolResult
 from loom.tools.registry import ToolRegistry
 from loom.tools.ssh import SshCallTool
@@ -170,6 +180,18 @@ __all__ = [
     "UsageEvent",
     "MemoryEntry",
     "MemoryStore",
+    "GraphRAGConfig",
+    "GraphRAGEngine",
+    "Chunk",
+    "RetrievalResult",
+    "Entity",
+    "EntityGraph",
+    "Triple",
+    "OllamaEmbeddingProvider",
+    "OpenAIEmbeddingProvider",
+    "VectorHit",
+    "VectorStore",
+    "chunk_markdown",
     "AgentPermissions",
     "PromptBuilder",
     "PromptSection",

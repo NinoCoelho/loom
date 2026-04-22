@@ -1,4 +1,34 @@
 from loom.store.atomic import atomic_write as atomic_write
+from loom.store.embeddings import (
+    OllamaEmbeddingProvider as OllamaEmbeddingProvider,
+)
+from loom.store.embeddings import (
+    OpenAIEmbeddingProvider as OpenAIEmbeddingProvider,
+)
+from loom.store.graph import (
+    Entity as Entity,
+)
+from loom.store.graph import (
+    EntityGraph as EntityGraph,
+)
+from loom.store.graph import (
+    Triple as Triple,
+)
+from loom.store.graphrag import (
+    Chunk as Chunk,
+)
+from loom.store.graphrag import (
+    GraphRAGConfig as GraphRAGConfig,
+)
+from loom.store.graphrag import (
+    GraphRAGEngine as GraphRAGEngine,
+)
+from loom.store.graphrag import (
+    RetrievalResult as RetrievalResult,
+)
+from loom.store.graphrag import (
+    chunk_markdown as chunk_markdown,
+)
 from loom.store.keychain import KeychainStore as KeychainStore
 from loom.store.memory import (
     MemoryEntry as MemoryEntry,
@@ -31,6 +61,12 @@ from loom.store.vault import (
 from loom.store.vault import (
     VaultStore as VaultStore,
 )
+from loom.store.vector import (
+    VectorHit as VectorHit,
+)
+from loom.store.vector import (
+    VectorStore as VectorStore,
+)
 
 __all__ = [
     "atomic_write",
@@ -38,12 +74,20 @@ __all__ = [
     "AwsSigV4Secret",
     "BasicAuthSecret",
     "BearerTokenSecret",
+    "Chunk",
+    "Entity",
+    "EntityGraph",
+    "GraphRAGConfig",
+    "GraphRAGEngine",
     "JwtSigningKeySecret",
     "KeychainStore",
     "MemoryEntry",
     "MemoryStore",
     "OAuth2ClientCredentialsSecret",
+    "OllamaEmbeddingProvider",
+    "OpenAIEmbeddingProvider",
     "PasswordSecret",
+    "RetrievalResult",
     "Secret",
     "SecretMetadata",
     "SecretStore",
@@ -51,7 +95,11 @@ __all__ = [
     "SearchHit",
     "SessionStore",
     "SshPrivateKeySecret",
+    "Triple",
+    "VectorHit",
+    "VectorStore",
     "FilesystemVaultProvider",
     "VaultProvider",
     "VaultStore",
+    "chunk_markdown",
 ]

@@ -333,6 +333,7 @@ The steps above cover the most common patterns. Loom has more:
 | Credentials — typed secrets (8 types), 8 appliers (HTTP/SSH/AWS/JWT), resolver, 5 HITL policy modes, OS keychain backend | `loom.auth`, `loom.store.secrets`, `loom.store.keychain` |
 | SSH tool — run commands on remote hosts; auth via credential pipeline | `loom.tools.ssh` (`loom[ssh]`) |
 | Recurring tasks — cron/interval-scheduled drivers that detect events and trigger agent runs | `loom.heartbeat` |
+| GraphRAG — knowledge-graph-augmented retrieval with vector search, entity extraction, and context injection | `loom.store.graphrag` (`loom[graphrag]`) |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation and [docs/API.md](docs/API.md) for the complete API reference.
 
