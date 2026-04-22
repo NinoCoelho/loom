@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,6 +39,7 @@ from loom.store.embeddings import _cosine_similarity
 from loom.store.vector import _pack_vector, _unpack_vector
 
 if TYPE_CHECKING:
+    from loom.store.graphrag import GraphRAGEngine
     from loom.store.vault import VaultProvider
 
 logger = logging.getLogger(__name__)
@@ -189,6 +191,7 @@ class MemoryStore:
         embedding_provider: EmbeddingProvider | None = None,
         vault_provider: VaultProvider | None = None,
         vault_prefix: str = "memory",
+        graphrag: GraphRAGEngine | None = None,
     ) -> None:
         self._dir = memory_dir
         self._dir.mkdir(parents=True, exist_ok=True)
@@ -209,6 +212,7 @@ class MemoryStore:
         """)
         self._db.commit()
         self._migrate_salience_columns()
+        self._migrate_vault_path_column()
         self._db.execute("""
             CREATE TABLE IF NOT EXISTS memory_vectors (
                 key TEXT PRIMARY KEY,
@@ -219,6 +223,7 @@ class MemoryStore:
         self._embedder = embedding_provider
         self._vault = vault_provider
         self._vault_prefix = vault_prefix
+        self._graphrag = graphrag
 
     def close(self) -> None:
         if self._closed:
@@ -301,6 +306,14 @@ class MemoryStore:
             if name not in existing:
                 self._db.execute(f"ALTER TABLE memory_meta ADD COLUMN {name} {spec}")
         self._db.commit()
+
+    def _migrate_vault_path_column(self) -> None:
+        existing = {
+            row[1] for row in self._db.execute("PRAGMA table_info(memory_meta)").fetchall()
+        }
+        if "vault_path" not in existing:
+            self._db.execute("ALTER TABLE memory_meta ADD COLUMN vault_path TEXT")
+            self._db.commit()
 
     # ── paths / IO ──────────────────────────────────────────────────
 
@@ -433,8 +446,9 @@ class MemoryStore:
         pinned: bool = False,
         importance: int = 1,
     ) -> None:
+        source_path: str | None = None
         if self._vault is not None:
-            await self._write_via_vault(
+            source_path = await self._write_via_vault(
                 key, content, category, tags or [], pinned=pinned, importance=importance
             )
         else:
@@ -442,6 +456,7 @@ class MemoryStore:
                 key, content, category, tags or [],
                 pinned=pinned, importance=importance,
             )
+            source_path = key
         if self._embedder is not None:
             try:
                 embeds = await self._embedder.embed([content[:2000]])
@@ -454,6 +469,11 @@ class MemoryStore:
                     self._db.commit()
             except Exception:
                 pass
+        if self._graphrag is not None and source_path is not None:
+            try:
+                await self._graphrag.index_source(source_path, content)
+            except Exception:
+                logger.warning("graphrag index_source failed for %s", key, exc_info=True)
 
     async def read(self, key: str) -> MemoryEntry | None:
         if self._vault is not None:
@@ -461,19 +481,29 @@ class MemoryStore:
         return self._read_file(key)
 
     async def delete(self, key: str) -> bool:
+        removed_source: str | None = None
         if self._vault is not None:
-            return await self._delete_via_vault(key)
-        path = self._key_path(key)
-        if not path.exists():
-            return False
-        path.unlink()
-        if self._has_fts5:
-            self._db.execute("DELETE FROM memory_fts WHERE key = ?", (key,))
+            removed_source = await self._delete_via_vault(key)
+            if removed_source is None:
+                return False
         else:
-            self._db.execute("DELETE FROM memory_content WHERE key = ?", (key,))
-        self._db.execute("DELETE FROM memory_meta WHERE key = ?", (key,))
-        self._db.execute("DELETE FROM memory_vectors WHERE key = ?", (key,))
-        self._db.commit()
+            path = self._key_path(key)
+            if not path.exists():
+                return False
+            path.unlink()
+            if self._has_fts5:
+                self._db.execute("DELETE FROM memory_fts WHERE key = ?", (key,))
+            else:
+                self._db.execute("DELETE FROM memory_content WHERE key = ?", (key,))
+            self._db.execute("DELETE FROM memory_meta WHERE key = ?", (key,))
+            self._db.execute("DELETE FROM memory_vectors WHERE key = ?", (key,))
+            self._db.commit()
+            removed_source = key
+        if self._graphrag is not None and removed_source is not None:
+            try:
+                self._graphrag.remove_source(removed_source)
+            except Exception:
+                logger.warning("graphrag remove_source failed for %s", key, exc_info=True)
         return True
 
     # ── keyword search (legacy / exact) ─────────────────────────────
@@ -588,7 +618,9 @@ class MemoryStore:
         """Mark an entry as just-recalled — bumps access_count + timestamp."""
         now = _utc_now_iso()
         if self._vault is not None:
-            vpath = self._vault_path(key)
+            vpath = self._vault_path_for_existing(key)
+            if vpath is None:
+                return
             try:
                 fm = self._vault.read_frontmatter(vpath)
             except FileNotFoundError:
@@ -802,16 +834,54 @@ class MemoryStore:
 
     # ── vault-delegated methods ─────────────────────────────────────
 
-    def _vault_path(self, key: str) -> str:
-        return f"{self._vault_prefix}/{key}.md"
+    def _vault_path_for_new(self, key: str, now_iso: str) -> str:
+        dt = datetime.fromisoformat(now_iso)
+        date_dir = f"{dt.year:04d}/{dt.month:02d}/{dt.day:02d}"
+        return f"{self._vault_prefix}/{date_dir}/{key}.md"
+
+    def _vault_path_for_existing(self, key: str) -> str | None:
+        row = self._db.execute(
+            "SELECT vault_path FROM memory_meta WHERE key = ?", (key,)
+        ).fetchone()
+        if row and row[0]:
+            return row[0]
+        flat = f"{self._vault_prefix}/{key}.md"
+        target = self._vault.root / flat
+        if target.exists():
+            return flat
+        paths = self._scan_vault_for_key(key)
+        return paths[0] if paths else None
+
+    def _scan_vault_for_key(self, key: str) -> list[str]:
+        prefix = self._vault_prefix
+        base = self._vault.root / prefix
+        if not base.exists():
+            return []
+        results: list[str] = []
+        suffix = f"{key}.md"
+        for p in base.rglob("*.md"):
+            if p.name == suffix:
+                rel = p.resolve().relative_to(self._vault.root.resolve())
+                results.append(str(rel))
+        return results
+
+    _VAULT_KEY_RE = re.compile(
+        r"^[^/]+/(?:\d{4}/\d{2}/\d{2}/)?(.+)\.md$"
+    )
 
     def _key_from_vault_path(self, path: str) -> str:
+        m = self._VAULT_KEY_RE.match(path)
+        if m:
+            return m.group(1)
         key = path
         if key.endswith(".md"):
             key = key[:-3]
         prefix = f"{self._vault_prefix}/"
         if key.startswith(prefix):
             key = key[len(prefix):]
+        parts = key.split("/")
+        if len(parts) >= 4 and parts[0].isdigit() and parts[1].isdigit() and parts[2].isdigit():
+            key = "/".join(parts[3:])
         return key
 
     def _sync_meta(self, key: str, **updates: Any) -> None:
@@ -831,7 +901,7 @@ class MemoryStore:
         *,
         pinned: bool = False,
         importance: int = 1,
-    ) -> None:
+    ) -> str:
         now = _utc_now_iso()
         metadata: dict[str, Any] = {
             "category": category,
@@ -840,8 +910,10 @@ class MemoryStore:
             "pinned": bool(pinned),
             "importance": max(0, min(3, importance)),
         }
+        existing_vpath = self._vault_path_for_existing(key)
+        vpath = existing_vpath or self._vault_path_for_new(key, now)
         try:
-            existing_raw = await self._vault.read(self._vault_path(key))
+            existing_raw = await self._vault.read(vpath)
             if existing_raw.startswith("---"):
                 end = existing_raw.find("---", 3)
                 if end != -1:
@@ -856,31 +928,37 @@ class MemoryStore:
             pass
         if "created" not in metadata:
             metadata["created"] = now
-        await self._vault.write(self._vault_path(key), content, metadata=metadata)
+        await self._vault.write(vpath, content, metadata=metadata)
         self._db.execute(
             "INSERT INTO memory_meta "
             "(key, category, tags, created, updated, pinned, importance, "
-            "access_count, last_recalled_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "access_count, last_recalled_at, vault_path) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(key) DO UPDATE SET "
             "category=excluded.category, tags=excluded.tags, "
             "updated=excluded.updated, pinned=excluded.pinned, "
             "importance=excluded.importance, "
             "access_count=excluded.access_count, "
-            "last_recalled_at=excluded.last_recalled_at",
+            "last_recalled_at=excluded.last_recalled_at, "
+            "vault_path=excluded.vault_path",
             (
                 key, category, json.dumps(tags),
                 metadata["created"], metadata["updated"],
                 int(bool(pinned)), metadata["importance"],
                 metadata.get("access_count", 0),
                 metadata.get("last_recalled_at"),
+                vpath,
             ),
         )
         self._db.commit()
+        return vpath
 
     async def _read_via_vault(self, key: str) -> MemoryEntry | None:
+        vpath = self._vault_path_for_existing(key)
+        if vpath is None:
+            return None
         try:
-            raw = await self._vault.read(self._vault_path(key))
+            raw = await self._vault.read(vpath)
         except FileNotFoundError:
             return None
         fm: dict[str, Any] = {}
@@ -906,16 +984,18 @@ class MemoryStore:
             last_recalled_at=fm.get("last_recalled_at"),
         )
 
-    async def _delete_via_vault(self, key: str) -> bool:
-        vpath = self._vault_path(key)
+    async def _delete_via_vault(self, key: str) -> str | None:
+        vpath = self._vault_path_for_existing(key)
+        if vpath is None:
+            return None
         target = self._vault.root / vpath
         if not target.exists():
-            return False
+            return None
         await self._vault.delete(vpath)
         self._db.execute("DELETE FROM memory_meta WHERE key = ?", (key,))
         self._db.execute("DELETE FROM memory_vectors WHERE key = ?", (key,))
         self._db.commit()
-        return True
+        return vpath
 
     async def _search_via_vault(self, query: str, limit: int) -> list[SearchHit]:
         results = await self._vault.search_scoped(query, self._vault_prefix, limit=limit)
@@ -990,8 +1070,10 @@ class MemoryStore:
         )
         results: list[tuple[str, str]] = []
         total = 0
+        resolved_root = self._vault.root.resolve()
         for f in files[:limit]:
-            key = str(f.relative_to(memory_dir).with_suffix(""))
+            vpath = str(f.resolve().relative_to(resolved_root))
+            key = self._key_from_vault_path(vpath)
             try:
                 raw = f.read_text(encoding="utf-8")
                 if raw.startswith("---"):
@@ -1012,7 +1094,9 @@ class MemoryStore:
         return results
 
     def _update_vault_frontmatter(self, key: str, updates: dict[str, Any]) -> None:
-        vpath = self._vault_path(key)
+        vpath = self._vault_path_for_existing(key)
+        if vpath is None:
+            return
         self._vault.update_frontmatter(vpath, updates)
 
     # ── maintenance ─────────────────────────────────────────────────
@@ -1021,6 +1105,53 @@ class MemoryStore:
         self._db.execute("DELETE FROM memory_fts")
         self._db.execute("DELETE FROM memory_meta")
         self._db.commit()
+        if self._vault is not None:
+            import asyncio
+            base = self._vault.root / self._vault_prefix
+            if not base.exists():
+                return
+            for p in sorted(base.rglob("*.md")):
+                key = self._key_from_vault_path(
+                    str(p.resolve().relative_to(self._vault.root.resolve()))
+                )
+                try:
+                    raw = p.read_text(encoding="utf-8")
+                    fm: dict[str, Any] = {}
+                    body = raw
+                    if raw.startswith("---"):
+                        end = raw.find("---", 3)
+                        if end != -1:
+                            try:
+                                fm = yaml.safe_load(raw[3:end]) or {}
+                            except Exception:
+                                pass
+                            body = raw[end + 3:].strip()
+                    if self._has_fts5:
+                        self._db.execute(
+                            "INSERT INTO memory_fts (key, category, content) VALUES (?, ?, ?)",
+                            (key, fm.get("category", "notes"), body[:5000]),
+                        )
+                    vpath = str(p.resolve().relative_to(self._vault.root.resolve()))
+                    self._db.execute(
+                        "INSERT INTO memory_meta "
+                        "(key, category, tags, created, updated, pinned, importance, "
+                        "access_count, last_recalled_at, vault_path) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            key, fm.get("category", "notes"),
+                            json.dumps(fm.get("tags", [])),
+                            fm.get("created"), fm.get("updated"),
+                            int(bool(fm.get("pinned", False))),
+                            int(fm.get("importance", 1)),
+                            int(fm.get("access_count", 0)),
+                            fm.get("last_recalled_at"),
+                            vpath,
+                        ),
+                    )
+                except Exception:
+                    continue
+            self._db.commit()
+            return
         for p in sorted(self._dir.rglob("*.md")):
             if p.name.startswith("_"):
                 continue

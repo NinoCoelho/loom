@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 import pytest
@@ -39,6 +40,9 @@ def store_with_vault(vault_provider, tmp_dir):
     )
     yield ms
     ms.close()
+
+
+_DATE_DIR_RE = re.compile(r"\d{4}/\d{2}/\d{2}")
 
 
 @pytest.mark.asyncio
@@ -144,7 +148,6 @@ async def test_recall_pinned_boost(store):
     await store.write("b", "the cat chased a mouse", category="notes")
     store.pin("b", True)
     hits = await store.recall("cat")
-    # pinned entry should win when BM25 is close
     assert hits[0].key == "b"
 
 
@@ -187,7 +190,6 @@ async def test_importance_clamped(store):
 
 @pytest.mark.asyncio
 async def test_salience_columns_migrate(tmp_path):
-    """Pre-existing DB without salience columns should be migrated on open."""
     import sqlite3 as _sq
 
     mem_dir = tmp_path / "mem"
@@ -200,7 +202,6 @@ async def test_salience_columns_migrate(tmp_path):
     )
     conn.commit()
     conn.close()
-    # Opening the store should add the missing columns without error.
     store = MemoryStore(mem_dir, db)
     try:
         await store.write("k", "hello", category="notes")
@@ -242,13 +243,57 @@ async def test_vault_write_and_read(store_with_vault):
 
 
 @pytest.mark.asyncio
-async def test_vault_write_creates_file(vault_dir, store_with_vault):
+async def test_vault_write_creates_date_dir_file(vault_dir, store_with_vault):
     await store_with_vault.write("my-note", "Some content", category="notes")
-    path = vault_dir / "memory" / "my-note.md"
+    now = datetime.now()
+    date_dir = vault_dir / "memory" / f"{now.year:04d}" / f"{now.month:02d}" / f"{now.day:02d}"
+    path = date_dir / "my-note.md"
     assert path.exists()
     raw = path.read_text()
     assert "Some content" in raw
     assert raw.startswith("---")
+
+
+@pytest.mark.asyncio
+async def test_vault_write_creates_no_flat_file(vault_dir, store_with_vault):
+    await store_with_vault.write("my-note", "Some content", category="notes")
+    flat_path = vault_dir / "memory" / "my-note.md"
+    assert not flat_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_vault_date_dir_matches_created_date(vault_dir, store_with_vault):
+    await store_with_vault.write("dated", "content", category="notes")
+    entry = await store_with_vault.read("dated")
+    assert entry is not None
+    created = datetime.fromisoformat(entry.created)
+    date_dir = vault_dir / "memory" / f"{created.year:04d}" / f"{created.month:02d}" / f"{created.day:02d}"
+    assert (date_dir / "dated.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_vault_overwrite_stays_in_original_dir(vault_dir, store_with_vault):
+    await store_with_vault.write("stable", "version 1", category="notes")
+    entry1 = await store_with_vault.read("stable")
+    created1 = datetime.fromisoformat(entry1.created)
+    date_dir1 = vault_dir / "memory" / f"{created1.year:04d}" / f"{created1.month:02d}" / f"{created1.day:02d}"
+
+    await store_with_vault.write("stable", "version 2", category="notes")
+    entry2 = await store_with_vault.read("stable")
+    assert entry2.content == "version 2"
+
+    assert (date_dir1 / "stable.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_vault_vault_path_stored_in_db(store_with_vault):
+    await store_with_vault.write("path-test", "content", category="notes")
+    row = store_with_vault._db.execute(
+        "SELECT vault_path FROM memory_meta WHERE key = ?", ("path-test",)
+    ).fetchone()
+    assert row is not None
+    assert row[0] is not None
+    assert _DATE_DIR_RE.search(row[0]) is not None
 
 
 @pytest.mark.asyncio
@@ -385,3 +430,111 @@ async def test_vault_importance_syncs_sqlite(store_with_vault):
     store_with_vault.set_importance("y", 0)
     entry = await store_with_vault.read("y")
     assert entry.importance == 0
+
+
+class FakeEmbedder:
+    dim = 4
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[len(t) * 0.01, 0.5, 0.3, 0.2] for t in texts]
+
+
+@pytest.fixture
+def store_with_graphrag(tmp_dir, vault_dir):
+    from loom.store.graphrag import GraphRAGConfig, GraphRAGEngine
+
+    vp = FilesystemVaultProvider(vault_dir)
+    engine = GraphRAGEngine(
+        GraphRAGConfig(chunk_size=500, top_k=5),
+        FakeEmbedder(),
+        db_dir=tmp_dir / "graphrag",
+    )
+    memory_dir = tmp_dir / "memory_standalone"
+    memory_dir.mkdir()
+    ms = MemoryStore(
+        memory_dir,
+        tmp_dir / "mem_idx.sqlite",
+        vault_provider=vp,
+        vault_prefix="memory",
+        graphrag=engine,
+    )
+    yield ms
+    engine.close()
+    vp.close()
+    ms.close()
+
+
+@pytest.mark.asyncio
+async def test_graphrag_indexes_on_write(store_with_graphrag):
+    await store_with_graphrag.write("gr-test", "Hello graphrag world", category="notes")
+    chunks = store_with_graphrag._graphrag._chunk_db.execute(
+        "SELECT id FROM chunks WHERE source_path LIKE ?", ("%gr-test%",)
+    ).fetchall()
+    assert len(chunks) > 0
+
+
+@pytest.mark.asyncio
+async def test_graphrag_removes_on_delete(store_with_graphrag):
+    await store_with_graphrag.write("gr-del", "to be deleted from graphrag", category="notes")
+    chunks_before = store_with_graphrag._graphrag._chunk_db.execute(
+        "SELECT id FROM chunks WHERE source_path LIKE ?", ("%gr-del%",)
+    ).fetchall()
+    assert len(chunks_before) > 0
+    await store_with_graphrag.delete("gr-del")
+    chunks_after = store_with_graphrag._graphrag._chunk_db.execute(
+        "SELECT id FROM chunks WHERE source_path LIKE ?", ("%gr-del%",)
+    ).fetchall()
+    assert len(chunks_after) == 0
+
+
+@pytest.mark.asyncio
+async def test_graphrag_indexes_standalone(tmp_dir):
+    from loom.store.graphrag import GraphRAGConfig, GraphRAGEngine
+
+    engine = GraphRAGEngine(
+        GraphRAGConfig(chunk_size=500, top_k=5),
+        FakeEmbedder(),
+        db_dir=tmp_dir / "graphrag",
+    )
+    memory_dir = tmp_dir / "mem"
+    memory_dir.mkdir()
+    ms = MemoryStore(
+        memory_dir,
+        tmp_dir / "mem_idx.sqlite",
+        graphrag=engine,
+    )
+    try:
+        await ms.write("standalone", "standalone graphrag content", category="notes")
+        chunks = engine._chunk_db.execute(
+            "SELECT id FROM chunks WHERE source_path = ?", ("standalone",)
+        ).fetchall()
+        assert len(chunks) > 0
+        await ms.delete("standalone")
+        chunks_after = engine._chunk_db.execute(
+            "SELECT id FROM chunks WHERE source_path = ?", ("standalone",)
+        ).fetchall()
+        assert len(chunks_after) == 0
+    finally:
+        ms.close()
+        engine.close()
+
+
+@pytest.mark.asyncio
+async def test_vault_reindex_populates_vault_path(vault_dir, store_with_vault):
+    await store_with_vault.write("reidx", "reindex content", category="notes")
+    store_with_vault.reindex_all()
+    row = store_with_vault._db.execute(
+        "SELECT vault_path FROM memory_meta WHERE key = ?", ("reidx",)
+    ).fetchone()
+    assert row is not None
+    assert row[0] is not None
+    assert _DATE_DIR_RE.search(row[0]) is not None
+
+
+@pytest.mark.asyncio
+async def test_vault_reindex_restores_read(vault_dir, store_with_vault):
+    await store_with_vault.write("reidx-r", "reindex read test", category="notes")
+    store_with_vault.reindex_all()
+    entry = await store_with_vault.read("reidx-r")
+    assert entry is not None
+    assert "reindex read test" in entry.content

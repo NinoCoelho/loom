@@ -393,6 +393,19 @@ class GraphRAGEngine:
             except Exception:
                 logger.warning("Failed to index vault file: %s", p, exc_info=True)
 
+    def remove_source(self, source_path: str) -> None:
+        old_ids = self._chunk_ids_for_source(source_path)
+        if not old_ids:
+            return
+        self._entity_graph.remove_for_chunks(old_ids)
+        for cid in old_ids:
+            self._vector_store.remove(cid)
+        placeholders = ",".join("?" for _ in old_ids)
+        self._chunk_db.execute(
+            f"DELETE FROM chunks WHERE id IN ({placeholders})", old_ids
+        )
+        self._chunk_db.commit()
+
     async def _extract_entities(self, chunks: list[Chunk]) -> None:
         from loom.types import ChatMessage, Role
 
