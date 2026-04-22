@@ -1,5 +1,10 @@
 """Agent memory store — markdown-on-disk + SQLite FTS5 + salience signals.
 
+When a :class:`VaultProvider` is supplied, the store delegates file I/O and
+FTS5 search to the vault (reads/writes land under ``<vault_prefix>/``).
+The standalone path (no vault) retains the original local-disk + SQLite
+behaviour and is the default.
+
 Retrieval layers
 ----------------
 * :meth:`MemoryStore.search` — thin FTS5/LIKE keyword search (legacy).
@@ -19,17 +24,23 @@ callers.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import yaml
 
 from loom.store.atomic import atomic_write
 from loom.store.embeddings import _cosine_similarity
 from loom.store.vector import _pack_vector, _unpack_vector
+
+if TYPE_CHECKING:
+    from loom.store.vault import VaultProvider
+
+logger = logging.getLogger(__name__)
 
 # ── Embedding provider protocol (optional) ──────────────────────────────
 
@@ -176,6 +187,8 @@ class MemoryStore:
         index_db: Path | None = None,
         *,
         embedding_provider: EmbeddingProvider | None = None,
+        vault_provider: VaultProvider | None = None,
+        vault_prefix: str = "memory",
     ) -> None:
         self._dir = memory_dir
         self._dir.mkdir(parents=True, exist_ok=True)
@@ -204,6 +217,8 @@ class MemoryStore:
         """)
         self._db.commit()
         self._embedder = embedding_provider
+        self._vault = vault_provider
+        self._vault_prefix = vault_prefix
 
     def close(self) -> None:
         if self._closed:
@@ -418,7 +433,15 @@ class MemoryStore:
         pinned: bool = False,
         importance: int = 1,
     ) -> None:
-        self._write_file(key, content, category, tags or [], pinned=pinned, importance=importance)
+        if self._vault is not None:
+            await self._write_via_vault(
+                key, content, category, tags or [], pinned=pinned, importance=importance
+            )
+        else:
+            self._write_file(
+                key, content, category, tags or [],
+                pinned=pinned, importance=importance,
+            )
         if self._embedder is not None:
             try:
                 embeds = await self._embedder.embed([content[:2000]])
@@ -433,9 +456,13 @@ class MemoryStore:
                 pass
 
     async def read(self, key: str) -> MemoryEntry | None:
+        if self._vault is not None:
+            return await self._read_via_vault(key)
         return self._read_file(key)
 
     async def delete(self, key: str) -> bool:
+        if self._vault is not None:
+            return await self._delete_via_vault(key)
         path = self._key_path(key)
         if not path.exists():
             return False
@@ -452,6 +479,8 @@ class MemoryStore:
     # ── keyword search (legacy / exact) ─────────────────────────────
 
     async def search(self, query: str, limit: int = 10) -> list[SearchHit]:
+        if self._vault is not None:
+            return await self._search_via_vault(query, limit)
         if self._has_fts5:
             rows = self._db.execute(
                 "SELECT key, category, "
@@ -472,6 +501,8 @@ class MemoryStore:
     async def list_entries(
         self, category: str | None = None, limit: int = 50
     ) -> list[MemoryEntry]:
+        if self._vault is not None:
+            return await self._list_via_vault(category, limit)
         cols = (
             "key, category, tags, created, updated, "
             "COALESCE(pinned,0), COALESCE(importance,1), "
@@ -506,6 +537,8 @@ class MemoryStore:
         return entries
 
     def recent(self, limit: int = 5, budget: int = 1500) -> list[tuple[str, str]]:
+        if self._vault is not None:
+            return self._recent_via_vault(limit, budget)
         rows = self._db.execute(
             "SELECT key, category, updated FROM memory_meta "
             "ORDER BY COALESCE(pinned,0) DESC, updated DESC LIMIT ?",
@@ -527,6 +560,10 @@ class MemoryStore:
     # ── salience mutators ───────────────────────────────────────────
 
     def pin(self, key: str, pinned: bool = True) -> None:
+        if self._vault is not None:
+            self._update_vault_frontmatter(key, {"pinned": pinned})
+            self._sync_meta(key, pinned=int(pinned))
+            return
         self._db.execute(
             "UPDATE memory_meta SET pinned = ? WHERE key = ?",
             (int(pinned), key),
@@ -536,6 +573,10 @@ class MemoryStore:
 
     def set_importance(self, key: str, level: int) -> None:
         level = max(0, min(3, level))
+        if self._vault is not None:
+            self._update_vault_frontmatter(key, {"importance": level})
+            self._sync_meta(key, importance=level)
+            return
         self._db.execute(
             "UPDATE memory_meta SET importance = ? WHERE key = ?",
             (level, key),
@@ -546,6 +587,23 @@ class MemoryStore:
     def touch(self, key: str) -> None:
         """Mark an entry as just-recalled — bumps access_count + timestamp."""
         now = _utc_now_iso()
+        if self._vault is not None:
+            vpath = self._vault_path(key)
+            try:
+                fm = self._vault.read_frontmatter(vpath)
+            except FileNotFoundError:
+                return
+            count = int(fm.get("access_count", 0))
+            self._update_vault_frontmatter(key, {
+                "access_count": count + 1,
+                "last_recalled_at": now,
+            })
+            self._sync_meta(
+                key,
+                access_count=count + 1,
+                last_recalled_at=now,
+            )
+            return
         self._db.execute(
             "UPDATE memory_meta SET access_count = COALESCE(access_count,0)+1, "
             "last_recalled_at = ? WHERE key = ?",
@@ -595,21 +653,19 @@ class MemoryStore:
         budget: int | None = None,
         touch: bool = True,
     ) -> list[RecallHit]:
-        """Retrieve memories most relevant to ``query`` via BM25 + salience + recency.
+        """Retrieve memories most relevant to ``query``.
 
-        When an :class:`EmbeddingProvider` is configured, the query is
-        embedded and vector similarity is blended into the hybrid score.
-
-        Returns up to ``limit`` hits ranked by a blended score. The
-        ``candidate_pool`` knob controls how many BM25 candidates feed
-        into the rerank — larger pools reduce the chance salience /
-        recency gets ignored because a relevant-but-not-recent entry
-        fell off the first page.
+        When a vault_provider is set, delegates to
+        ``vault_provider.search_scoped()`` for FTS5 retrieval across the
+        vault prefix. Otherwise uses local BM25 + salience + recency.
 
         When ``touch=True`` (default), every returned entry gets its
         ``access_count`` / ``last_recalled_at`` bumped so future recalls
         naturally favor memories the agent actually uses.
         """
+        if self._vault is not None:
+            return await self._recall_via_vault(query, limit=limit, touch=touch)
+
         candidates = await self._bm25_candidates(query, candidate_pool)
         if not candidates:
             return []
@@ -743,6 +799,221 @@ class MemoryStore:
             return 0.0
         age_days = max(0.0, (now - when).total_seconds() / 86400.0)
         return math.exp(-age_days / _RECENCY_TAU_DAYS)
+
+    # ── vault-delegated methods ─────────────────────────────────────
+
+    def _vault_path(self, key: str) -> str:
+        return f"{self._vault_prefix}/{key}.md"
+
+    def _key_from_vault_path(self, path: str) -> str:
+        key = path
+        if key.endswith(".md"):
+            key = key[:-3]
+        prefix = f"{self._vault_prefix}/"
+        if key.startswith(prefix):
+            key = key[len(prefix):]
+        return key
+
+    def _sync_meta(self, key: str, **updates: Any) -> None:
+        sets = ", ".join(f"{k} = ?" for k in updates)
+        vals = list(updates.values()) + [key]
+        self._db.execute(
+            f"UPDATE memory_meta SET {sets} WHERE key = ?", vals
+        )
+        self._db.commit()
+
+    async def _write_via_vault(
+        self,
+        key: str,
+        content: str,
+        category: str,
+        tags: list[str],
+        *,
+        pinned: bool = False,
+        importance: int = 1,
+    ) -> None:
+        now = _utc_now_iso()
+        metadata: dict[str, Any] = {
+            "category": category,
+            "tags": tags,
+            "updated": now,
+            "pinned": bool(pinned),
+            "importance": max(0, min(3, importance)),
+        }
+        try:
+            existing_raw = await self._vault.read(self._vault_path(key))
+            if existing_raw.startswith("---"):
+                end = existing_raw.find("---", 3)
+                if end != -1:
+                    old_fm = yaml.safe_load(existing_raw[3:end]) or {}
+                    if "created" in old_fm:
+                        metadata["created"] = old_fm["created"]
+                    metadata.setdefault("access_count", old_fm.get("access_count", 0))
+                    last = old_fm.get("last_recalled_at")
+                    if last is not None:
+                        metadata["last_recalled_at"] = last
+        except (FileNotFoundError, Exception):
+            pass
+        if "created" not in metadata:
+            metadata["created"] = now
+        await self._vault.write(self._vault_path(key), content, metadata=metadata)
+        self._db.execute(
+            "INSERT INTO memory_meta "
+            "(key, category, tags, created, updated, pinned, importance, "
+            "access_count, last_recalled_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET "
+            "category=excluded.category, tags=excluded.tags, "
+            "updated=excluded.updated, pinned=excluded.pinned, "
+            "importance=excluded.importance, "
+            "access_count=excluded.access_count, "
+            "last_recalled_at=excluded.last_recalled_at",
+            (
+                key, category, json.dumps(tags),
+                metadata["created"], metadata["updated"],
+                int(bool(pinned)), metadata["importance"],
+                metadata.get("access_count", 0),
+                metadata.get("last_recalled_at"),
+            ),
+        )
+        self._db.commit()
+
+    async def _read_via_vault(self, key: str) -> MemoryEntry | None:
+        try:
+            raw = await self._vault.read(self._vault_path(key))
+        except FileNotFoundError:
+            return None
+        fm: dict[str, Any] = {}
+        body = raw
+        if raw.startswith("---"):
+            end = raw.find("---", 3)
+            if end != -1:
+                try:
+                    fm = yaml.safe_load(raw[3:end]) or {}
+                except Exception:
+                    pass
+                body = raw[end + 3:].strip()
+        return MemoryEntry(
+            key=key,
+            category=fm.get("category", "notes"),
+            tags=fm.get("tags", []),
+            content=body,
+            created=fm.get("created"),
+            updated=fm.get("updated"),
+            pinned=bool(fm.get("pinned", False)),
+            importance=int(fm.get("importance", 1)),
+            access_count=int(fm.get("access_count", 0)),
+            last_recalled_at=fm.get("last_recalled_at"),
+        )
+
+    async def _delete_via_vault(self, key: str) -> bool:
+        vpath = self._vault_path(key)
+        target = self._vault.root / vpath
+        if not target.exists():
+            return False
+        await self._vault.delete(vpath)
+        self._db.execute("DELETE FROM memory_meta WHERE key = ?", (key,))
+        self._db.execute("DELETE FROM memory_vectors WHERE key = ?", (key,))
+        self._db.commit()
+        return True
+
+    async def _search_via_vault(self, query: str, limit: int) -> list[SearchHit]:
+        results = await self._vault.search_scoped(query, self._vault_prefix, limit=limit)
+        hits: list[SearchHit] = []
+        for r in results:
+            key = self._key_from_vault_path(r.get("path", ""))
+            hits.append(SearchHit(
+                key=key,
+                category="notes",
+                snippet=r.get("snippet", ""),
+                score=r.get("score", 0.0),
+            ))
+        return hits
+
+    async def _recall_via_vault(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        touch: bool = True,
+    ) -> list[RecallHit]:
+        results = await self._vault.search_scoped(query, self._vault_prefix, limit=limit)
+        raw_scores: list[float] = []
+        for r in results:
+            s = r.get("score", 0.0)
+            raw_scores.append(float(s) if isinstance(s, (int, float)) else 0.0)
+        worst = min(raw_scores) if raw_scores else 0.0
+        best = max(raw_scores) if raw_scores else 0.0
+        span = (best - worst) or 1.0
+
+        hits: list[RecallHit] = []
+        for r, raw_s in zip(results, raw_scores):
+            key = self._key_from_vault_path(r.get("path", ""))
+            snippet = r.get("snippet", "")
+            bm25_norm = (raw_s - worst) / span
+            bm25_norm = 1.0 - bm25_norm
+            hits.append(RecallHit(
+                key=key,
+                category="notes",
+                preview=snippet[:300],
+                score=bm25_norm,
+                components={"bm25": bm25_norm},
+            ))
+        if touch:
+            for h in hits:
+                self.touch(h.key)
+        return hits
+
+    async def _list_via_vault(
+        self, category: str | None, limit: int
+    ) -> list[MemoryEntry]:
+        paths = await self._vault.list(prefix=self._vault_prefix)
+        entries: list[MemoryEntry] = []
+        for p in paths[:limit]:
+            key = self._key_from_vault_path(p)
+            entry = await self._read_via_vault(key)
+            if entry is None:
+                continue
+            if category and entry.category != category:
+                continue
+            entries.append(entry)
+        return entries
+
+    def _recent_via_vault(self, limit: int, budget: int) -> list[tuple[str, str]]:
+        memory_dir = self._vault.root / self._vault_prefix
+        if not memory_dir.exists():
+            return []
+        files = sorted(
+            memory_dir.rglob("*.md"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        results: list[tuple[str, str]] = []
+        total = 0
+        for f in files[:limit]:
+            key = str(f.relative_to(memory_dir).with_suffix(""))
+            try:
+                raw = f.read_text(encoding="utf-8")
+                if raw.startswith("---"):
+                    end = raw.find("---", 3)
+                    if end != -1:
+                        body = raw[end + 3:].strip()
+                    else:
+                        body = raw
+                else:
+                    body = raw
+                preview = body[:300]
+            except Exception:
+                continue
+            if total + len(preview) > budget:
+                break
+            results.append((key, preview))
+            total += len(preview)
+        return results
+
+    def _update_vault_frontmatter(self, key: str, updates: dict[str, Any]) -> None:
+        vpath = self._vault_path(key)
+        self._vault.update_frontmatter(vpath, updates)
 
     # ── maintenance ─────────────────────────────────────────────────
 

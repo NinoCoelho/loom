@@ -3,6 +3,7 @@ from datetime import datetime
 import pytest
 
 from loom.store.memory import MemoryStore
+from loom.store.vault import FilesystemVaultProvider
 
 
 @pytest.fixture
@@ -10,6 +11,34 @@ def store(memory_dir, memory_index):
     memory_store = MemoryStore(memory_dir, memory_index)
     yield memory_store
     memory_store.close()
+
+
+@pytest.fixture
+def vault_dir(tmp_dir):
+    d = tmp_dir / "vault"
+    d.mkdir()
+    return d
+
+
+@pytest.fixture
+def vault_provider(vault_dir):
+    vp = FilesystemVaultProvider(vault_dir)
+    yield vp
+    vp.close()
+
+
+@pytest.fixture
+def store_with_vault(vault_provider, tmp_dir):
+    memory_dir = tmp_dir / "memory_standalone"
+    memory_dir.mkdir()
+    ms = MemoryStore(
+        memory_dir,
+        tmp_dir / "mem_idx.sqlite",
+        vault_provider=vault_provider,
+        vault_prefix="memory",
+    )
+    yield ms
+    ms.close()
 
 
 @pytest.mark.asyncio
@@ -197,3 +226,162 @@ async def test_persistence(memory_dir, memory_index):
         assert "survives restart" in entry.content
     finally:
         store2.close()
+
+
+# ── Vault-backed tests ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_vault_write_and_read(store_with_vault):
+    await store_with_vault.write("test-key", "Hello vault", category="notes", tags=["vault"])
+    entry = await store_with_vault.read("test-key")
+    assert entry is not None
+    assert entry.content == "Hello vault"
+    assert entry.category == "notes"
+    assert "vault" in entry.tags
+
+
+@pytest.mark.asyncio
+async def test_vault_write_creates_file(vault_dir, store_with_vault):
+    await store_with_vault.write("my-note", "Some content", category="notes")
+    path = vault_dir / "memory" / "my-note.md"
+    assert path.exists()
+    raw = path.read_text()
+    assert "Some content" in raw
+    assert raw.startswith("---")
+
+
+@pytest.mark.asyncio
+async def test_vault_read_nonexistent(store_with_vault):
+    entry = await store_with_vault.read("nonexistent")
+    assert entry is None
+
+
+@pytest.mark.asyncio
+async def test_vault_delete(store_with_vault, vault_dir):
+    await store_with_vault.write("to-delete", "temporary", category="notes")
+    assert await store_with_vault.read("to-delete") is not None
+    assert await store_with_vault.delete("to-delete") is True
+    assert await store_with_vault.read("to-delete") is None
+
+
+@pytest.mark.asyncio
+async def test_vault_delete_nonexistent(store_with_vault):
+    assert await store_with_vault.delete("nonexistent") is False
+
+
+@pytest.mark.asyncio
+async def test_vault_overwrite(store_with_vault):
+    await store_with_vault.write("key", "version 1", category="notes")
+    await store_with_vault.write("key", "version 2", category="notes")
+    entry = await store_with_vault.read("key")
+    assert entry.content == "version 2"
+
+
+@pytest.mark.asyncio
+async def test_vault_search_scoped(store_with_vault):
+    await store_with_vault.write("alpha", "Alpha uses gRPC and Go", category="projects")
+    await store_with_vault.write("beta", "Beta uses Python and REST", category="projects")
+    hits = await store_with_vault.search("gRPC")
+    assert len(hits) >= 1
+    assert any(h.key == "alpha" for h in hits)
+
+
+@pytest.mark.asyncio
+async def test_vault_recall(store_with_vault):
+    await store_with_vault.write("go", "Alpha uses gRPC and Go", category="projects")
+    await store_with_vault.write("py", "Beta uses Python and REST", category="projects")
+    hits = await store_with_vault.recall("gRPC")
+    assert hits
+    assert hits[0].key == "go"
+
+
+@pytest.mark.asyncio
+async def test_vault_recent(store_with_vault):
+    await store_with_vault.write("r1", "Recent entry 1", category="notes")
+    await store_with_vault.write("r2", "Recent entry 2", category="notes")
+    recent = store_with_vault.recent(limit=2)
+    assert len(recent) <= 2
+
+
+@pytest.mark.asyncio
+async def test_vault_touch_bumps_access_count(store_with_vault):
+    await store_with_vault.write("t", "find me via query", category="notes")
+    await store_with_vault.recall("query", touch=True)
+    entry = await store_with_vault.read("t")
+    assert entry is not None
+    assert entry.access_count >= 1
+    assert entry.last_recalled_at is not None
+
+
+@pytest.mark.asyncio
+async def test_vault_importance(store_with_vault):
+    await store_with_vault.write("i", "stuff", category="notes")
+    store_with_vault.set_importance("i", 99)
+    entry = await store_with_vault.read("i")
+    assert entry.importance == 3
+
+
+@pytest.mark.asyncio
+async def test_vault_pin(store_with_vault):
+    await store_with_vault.write("p", "pin me", category="notes")
+    store_with_vault.pin("p", True)
+    entry = await store_with_vault.read("p")
+    assert entry.pinned is True
+
+
+@pytest.mark.asyncio
+async def test_vault_pin_nonexistent(store_with_vault):
+    store_with_vault.pin("nonexistent", True)
+
+
+@pytest.mark.asyncio
+async def test_vault_touch_nonexistent(store_with_vault):
+    store_with_vault.touch("nonexistent")
+
+
+@pytest.mark.asyncio
+async def test_vault_set_importance_nonexistent(store_with_vault):
+    store_with_vault.set_importance("nonexistent", 2)
+
+
+@pytest.mark.asyncio
+async def test_vault_recent_empty(store_with_vault):
+    recent = store_with_vault.recent(limit=5)
+    assert recent == []
+
+
+@pytest.mark.asyncio
+async def test_vault_recall_empty(store_with_vault):
+    hits = await store_with_vault.recall("nothing")
+    assert hits == []
+
+
+@pytest.mark.asyncio
+async def test_vault_list_by_category(store_with_vault):
+    await store_with_vault.write("a", "note content", category="notes")
+    await store_with_vault.write("b", "project content", category="projects")
+    notes = await store_with_vault.list_entries(category="notes")
+    assert all(e.category == "notes" for e in notes)
+
+
+@pytest.mark.asyncio
+async def test_vault_pin_syncs_sqlite(store_with_vault):
+    await store_with_vault.write("x", "sync test", category="notes")
+    store_with_vault.pin("x", True)
+    entry = await store_with_vault.read("x")
+    assert entry.pinned is True
+    store_with_vault.pin("x", False)
+    entry = await store_with_vault.read("x")
+    assert entry.pinned is False
+
+
+@pytest.mark.asyncio
+async def test_vault_importance_syncs_sqlite(store_with_vault):
+    await store_with_vault.write("y", "imp test", category="notes")
+    store_with_vault.set_importance("y", 3)
+    entry = await store_with_vault.read("y")
+    assert entry.importance == 3
+    store_with_vault.set_importance("y", 0)
+    entry = await store_with_vault.read("y")
+    assert entry.importance == 0

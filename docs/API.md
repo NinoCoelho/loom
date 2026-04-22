@@ -291,16 +291,29 @@ class SessionStore:
     def search(self, query: str, limit: int = 20) -> list[dict]: ...
 ```
 
-### `VaultStore`
+### `VaultProvider` (Protocol)
 ```python
-class VaultStore:
-    def __init__(self, vault_dir: Path): ...
+class VaultProvider(Protocol):
+    @property
+    def root(self) -> Path: ...
     async def search(self, query: str, limit: int = 10) -> list[dict]: ...
+    async def search_scoped(self, query: str, path_prefix: str, limit: int = 10) -> list[dict]: ...
     async def read(self, path: str) -> str: ...
     async def write(self, path: str, content: str, metadata: dict | None = None) -> None: ...
     async def list(self, prefix: str = "") -> list[str]: ...
-    def reindex_all(self) -> None: ...
+    async def delete(self, path: str) -> None: ...
+    def read_frontmatter(self, path: str) -> dict: ...
+    def update_frontmatter(self, path: str, updates: dict) -> None: ...
 ```
+
+### `FilesystemVaultProvider`
+```python
+class FilesystemVaultProvider:
+    def __init__(self, vault_dir: Path): ...
+    # Implements VaultProvider — markdown files on disk + SQLite FTS5 index.
+```
+
+`VaultStore` is a deprecated alias for `FilesystemVaultProvider`.
 
 ### `SecretsStore`
 ```python
@@ -919,25 +932,39 @@ class MemoryEntry:
     content: str
     created: str
     updated: str
-    importance: int = 3
+    importance: int = 1      # clamped to [0, 3]
     pinned: bool = False
     access_count: int = 0
+    last_recalled_at: str | None = None
 ```
 
 ### `MemoryStore`
 ```python
 class MemoryStore:
-    def __init__(self, memory_dir: Path, embedding_provider: EmbeddingProvider | None = None): ...
-    async def write(self, key: str, content: str, category: str = "", tags: list[str] = []) -> MemoryEntry: ...
+    def __init__(
+        self,
+        memory_dir: Path,
+        index_db: Path | None = None,
+        *,
+        embedding_provider: EmbeddingProvider | None = None,
+        vault_provider: VaultProvider | None = None,
+        vault_prefix: str = "memory",
+    ): ...
+    async def write(self, key: str, content: str, category: str = "notes", tags: list[str] = [], *, pinned: bool = False, importance: int = 1) -> None: ...
     async def read(self, key: str) -> MemoryEntry | None: ...
-    async def search(self, query: str, limit: int = 10) -> list[MemoryEntry]: ...
-    async def recall(self, query: str, limit: int = 10) -> list[RecallHit]: ...
+    async def search(self, query: str, limit: int = 10) -> list[SearchHit]: ...
+    async def recall(self, query: str, *, limit: int = 5, touch: bool = True) -> list[RecallHit]: ...
     async def delete(self, key: str) -> bool: ...
-    async def list_entries(self, category: str = "") -> list[MemoryEntry]: ...
-    async def pin(self, key: str) -> bool: ...
-    async def set_importance(self, key: str, level: int) -> bool: ...
-    async def touch(self, key: str) -> None: ...
+    async def list_entries(self, category: str | None = None, limit: int = 50) -> list[MemoryEntry]: ...
+    def recent(self, limit: int = 5, budget: int = 1500) -> list[tuple[str, str]]: ...
+    def pin(self, key: str, pinned: bool = True) -> None: ...
+    def set_importance(self, key: str, level: int) -> None: ...
+    def touch(self, key: str) -> None: ...
 ```
+
+**Standalone mode** (no `vault_provider`): local markdown files + SQLite FTS5 + salience/recency ranking. This is the default.
+
+**Vault-backed mode** (pass `vault_provider`): delegates file I/O and FTS5 search to the vault provider. Memories are stored as markdown files with YAML frontmatter under `<vault_prefix>/`. Salience mutations update both frontmatter and the local SQLite index.
 
 ### `EmbeddingProvider` (Protocol)
 ```python
@@ -946,12 +973,23 @@ class EmbeddingProvider(Protocol):
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 ```
 
+### `SearchHit`
+```python
+class SearchHit:
+    key: str
+    category: str
+    snippet: str
+    score: float
+```
+
 ### `RecallHit`
 ```python
-class RecallHit(BaseModel):
-    entry: MemoryEntry
+class RecallHit:
+    key: str
+    category: str
+    preview: str
     score: float
-    source: str  # "bm25" | "salience" | "recency" | "hybrid"
+    components: dict[str, float]  # e.g. {"bm25": 0.8, "salience": 0.5, ...}
 ```
 
 ---

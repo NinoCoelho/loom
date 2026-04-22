@@ -6,6 +6,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+import yaml
+
 from loom.store.atomic import atomic_write
 
 
@@ -18,11 +20,25 @@ class VaultProvider(Protocol):
     protocol and register their own instance with the vault tool.
     """
 
-    async def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]: ...
+    @property
+    def root(self) -> Path:
+        """Filesystem root of the vault (for directory-based enumeration)."""
+        ...
+
+    async def search(
+        self, query: str, limit: int = 10
+    ) -> list[dict[str, Any]]: ...
+    async def search_scoped(
+        self, query: str, path_prefix: str, limit: int = 10
+    ) -> list[dict[str, Any]]: ...
     async def read(self, path: str) -> str: ...
-    async def write(self, path: str, content: str, metadata: dict | None = None) -> None: ...
+    async def write(
+        self, path: str, content: str, metadata: dict | None = None
+    ) -> None: ...
     async def list(self, prefix: str = "") -> list[str]: ...
     async def delete(self, path: str) -> None: ...
+    def read_frontmatter(self, path: str) -> dict[str, Any]: ...
+    def update_frontmatter(self, path: str, updates: dict[str, Any]) -> None: ...
 
 
 class FilesystemVaultProvider:
@@ -69,6 +85,10 @@ class FilesystemVaultProvider:
             self.close()
         except Exception:
             pass
+
+    @property
+    def root(self) -> Path:
+        return self._dir
 
     def _safe_resolve(self, path: str) -> Path:
         target = (self._dir / path).resolve()
@@ -138,6 +158,24 @@ class FilesystemVaultProvider:
             for r in rows
         ]
 
+    async def search_scoped(
+        self, query: str, path_prefix: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """FTS5 search filtered to paths starting with *path_prefix*."""
+        escaped = " ".join(f'"{t}"' for t in query.split() if t) or '""'
+        pattern = f"{path_prefix}%" if path_prefix else "%"
+        rows = self._db.execute(
+            "SELECT path, title, "
+            "snippet(vault_fts, 2, '<<', '>>', '...', 30) as snippet, rank "
+            "FROM vault_fts WHERE vault_fts MATCH ? AND path LIKE ? "
+            "ORDER BY rank LIMIT ?",
+            (escaped, pattern, limit),
+        ).fetchall()
+        return [
+            {"path": r[0], "title": r[1], "snippet": r[2], "score": r[3]}
+            for r in rows
+        ]
+
     async def read(self, path: str) -> str:
         target = self._safe_resolve(path)
         if not target.exists():
@@ -158,11 +196,12 @@ class FilesystemVaultProvider:
         base = self._dir
         if prefix:
             base = self._safe_resolve(prefix)
+        resolved_root = self._dir.resolve()
         results: list[str] = []
         for p in sorted(base.rglob("*.md")):
             if p.name == "SKILL.md":
                 continue
-            rel = p.relative_to(self._dir)
+            rel = p.resolve().relative_to(resolved_root)
             if not str(rel).startswith("_"):
                 results.append(str(rel))
         return results
@@ -171,6 +210,26 @@ class FilesystemVaultProvider:
         target = self._safe_resolve(path)
         if target.exists():
             target.unlink()
+        self._reindex_doc(path)
+
+    def read_frontmatter(self, path: str) -> dict[str, Any]:
+        target = self._safe_resolve(path)
+        if not target.exists():
+            raise FileNotFoundError(f"Vault document not found: {path}")
+        raw = target.read_text(encoding="utf-8")
+        fm, _ = self._parse_frontmatter(raw)
+        return fm
+
+    def update_frontmatter(self, path: str, updates: dict[str, Any]) -> None:
+        target = self._safe_resolve(path)
+        if not target.exists():
+            return
+        raw = target.read_text(encoding="utf-8")
+        fm, body = self._parse_frontmatter(raw)
+        fm.update(updates)
+        fm_str = yaml.dump(fm, default_flow_style=False).strip()
+        full = f"---\n{fm_str}\n---\n{body}"
+        atomic_write(target, full)
         self._reindex_doc(path)
 
     def reindex_all(self) -> None:
