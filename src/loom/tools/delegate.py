@@ -1,11 +1,28 @@
 from __future__ import annotations
 
+from typing import Any, Protocol
+
 from loom.tools.base import ToolHandler, ToolResult
 from loom.types import ChatMessage, Role, ToolSpec
 
 
+class _AgentProtocol(Protocol):
+    async def run_turn(
+        self,
+        messages: list[ChatMessage],
+        context: dict[str, Any] | None = None,
+        model_id: str | None = None,
+    ) -> Any: ...
+
+
+class _RuntimeProtocol(Protocol):
+    def list_agents(self) -> list[str]: ...
+
+    def get_agent(self, name: str) -> _AgentProtocol | None: ...
+
+
 class DelegateTool(ToolHandler):
-    def __init__(self, runtime: object) -> None:
+    def __init__(self, runtime: _RuntimeProtocol) -> None:
         self._runtime = runtime
 
     @property

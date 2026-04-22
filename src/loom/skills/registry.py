@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from pathlib import Path
 
 from loom.skills.loader import load_skill
@@ -60,5 +61,5 @@ class SkillRegistry:
         return self._skills_dir
 
     @property
-    def additional_dirs(self) -> list[Path]:
+    def additional_dirs(self) -> builtins.list[Path]:
         return list(self._additional_dirs)

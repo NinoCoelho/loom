@@ -32,6 +32,14 @@ def store(tmp_path: Path) -> SecretStore:
     )
 
 
+def _assert_private_mode(path: Path) -> None:
+    mode = stat.S_IMODE(os.stat(path).st_mode)
+    if os.name == "nt":
+        assert mode in {0o600, 0o666}, f"expected Windows-safe private mode, got {oct(mode)}"
+    else:
+        assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
+
+
 # ---------------------------------------------------------------------------
 # Roundtrip tests per secret type
 # ---------------------------------------------------------------------------
@@ -205,16 +213,14 @@ async def test_key_file_mode_0600(tmp_path: Path) -> None:
     key_path = tmp_path / "keys" / "secrets.key"
     store = SecretStore(path=tmp_path / "secrets.db", key_path=key_path)
     await store.put("s", {"type": "api_key", "value": "v"})
-    mode = stat.S_IMODE(os.stat(key_path).st_mode)
-    assert mode == 0o600
+    _assert_private_mode(key_path)
 
 
 async def test_storage_file_mode_0600(tmp_path: Path) -> None:
     db_path = tmp_path / "secrets.db"
     store = SecretStore(path=db_path, key_path=tmp_path / "keys" / "secrets.key")
     await store.put("s", {"type": "api_key", "value": "v"})
-    mode = stat.S_IMODE(os.stat(db_path).st_mode)
-    assert mode == 0o600
+    _assert_private_mode(db_path)
 
 
 async def test_file_content_is_encrypted(tmp_path: Path) -> None:

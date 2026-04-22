@@ -39,6 +39,7 @@ def choose_model(
 
     def _score(model_id: str) -> float:
         s = strengths.get(model_id, ModelStrengths())
+        primary: float
         if category == MessageCategory.CODING:
             primary = s.coding
         elif category == MessageCategory.REASONING:

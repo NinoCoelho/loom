@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Role(StrEnum):
@@ -30,7 +30,7 @@ class ToolCall(BaseModel):
 class ToolSpec(BaseModel):
     name: str
     description: str
-    parameters: dict
+    parameters: dict[str, Any]
 
 
 class Usage(BaseModel):
@@ -133,17 +133,17 @@ class DoneEvent(BaseModel):
     without inventing a sidecar channel."""
 
     type: Literal["done"] = "done"
-    context: dict = {}
+    context: dict[str, Any] = Field(default_factory=dict)
 
 
-StreamEvent = (
-    ContentDeltaEvent,
-    ToolCallDeltaEvent,
-    UsageEvent,
-    StopEvent,
-    ToolExecStartEvent,
-    ToolExecResultEvent,
-    LimitReachedEvent,
-    ErrorEvent,
-    DoneEvent,
+type StreamEvent = (
+    ContentDeltaEvent
+    | ToolCallDeltaEvent
+    | UsageEvent
+    | StopEvent
+    | ToolExecStartEvent
+    | ToolExecResultEvent
+    | LimitReachedEvent
+    | ErrorEvent
+    | DoneEvent
 )

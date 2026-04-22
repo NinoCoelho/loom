@@ -134,7 +134,9 @@ class EntityGraph:
             (name.strip(), type, canonical),
         )
         self._db.commit()
-        return cur.lastrowid
+        if cur.lastrowid is None:
+            raise RuntimeError("failed to persist entity row")
+        return int(cur.lastrowid)
 
     def get_entity(self, entity_id: int) -> Entity | None:
         row = self._db.execute(

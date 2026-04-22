@@ -26,6 +26,14 @@ def _policy(scope: str, mode: PolicyMode = PolicyMode.AUTONOMOUS) -> CredentialP
     return CredentialPolicy(scope=scope, mode=mode)
 
 
+def _assert_private_mode(path: Path) -> None:
+    mode = stat.S_IMODE(os.stat(path).st_mode)
+    if os.name == "nt":
+        assert mode in {0o600, 0o666}, f"expected Windows-safe private mode, got {oct(mode)}"
+    else:
+        assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
+
+
 # ---------------------------------------------------------------------------
 # Basic CRUD
 # ---------------------------------------------------------------------------
@@ -115,9 +123,7 @@ async def test_decrement_uses_unlimited_policy_returns_minus_one(store: PolicySt
 
 async def test_file_mode_is_0600(store: PolicyStore) -> None:
     await store.put(_policy("mode-test"))
-    path = store._path
-    mode = stat.S_IMODE(os.stat(path).st_mode)
-    assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
+    _assert_private_mode(store._path)
 
 
 # ---------------------------------------------------------------------------

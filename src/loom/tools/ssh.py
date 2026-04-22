@@ -156,11 +156,9 @@ class SshCallTool(ToolHandler):
     async def invoke(self, args: dict) -> ToolResult:
         try:
             import asyncio
-
-            import asyncssh
         except ImportError:
             return ToolResult(
-                text="SSH error: asyncssh is not installed. Run: pip install 'loom[ssh]'",
+                text="SSH error: asyncio is not available in this Python runtime",
                 metadata={"exit_code": None, "error_class": "transport"},
             )
 
@@ -186,6 +184,14 @@ class SshCallTool(ToolHandler):
                 text="SSH error: credential resolution failed — "
                 + redact_sensitive_text(str(exc)),
                 metadata={"exit_code": None, "error_class": "auth"},
+            )
+
+        try:
+            import asyncssh
+        except ImportError:
+            return ToolResult(
+                text="SSH error: asyncssh is not installed. Run: pip install 'loom[ssh]'",
+                metadata={"exit_code": None, "error_class": "transport"},
             )
 
         # known_hosts handling

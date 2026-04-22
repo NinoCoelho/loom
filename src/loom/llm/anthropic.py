@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 from loom.errors import LLMError, LLMTransportError, MalformedOutputError
 from loom.llm.base import LLMProvider
@@ -124,7 +125,7 @@ class AnthropicProvider(LLMProvider):
             for t in tools
         ]
 
-    def _parse_response(self, response: object) -> ChatResponse:
+    def _parse_response(self, response: Any) -> ChatResponse:
         content_text: str | None = None
         tool_calls: list[ToolCall] = []
 

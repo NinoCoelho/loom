@@ -27,12 +27,15 @@ from loom.types import (
     ErrorEvent,
     LimitReachedEvent,
     Role,
+    StopEvent,
     StopReason,
     StreamEvent,
     ToolCall,
+    ToolCallDeltaEvent,
     ToolExecResultEvent,
     ToolExecStartEvent,
     ToolSpec,
+    UsageEvent,
 )
 
 if TYPE_CHECKING:
@@ -282,7 +285,7 @@ class Agent:
             if msg.role == Role.SYSTEM:
                 enriched[i] = ChatMessage(
                     role=Role.SYSTEM,
-                    content=msg.content + "\n\n" + context,
+                    content=(msg.content or "") + "\n\n" + context,
                 )
                 break
         else:
@@ -579,27 +582,26 @@ class Agent:
                             has_forwarded = True
                         content_parts.append(event.delta)
                         yield _wrap(ContentDeltaEvent(delta=event.delta))
-                    elif isinstance(event, StreamEvent):
-                        if event.type == "tool_call_delta":
-                            idx = event.index
-                            if idx not in tool_call_parts:
-                                tool_call_parts[idx] = {
-                                    "id": event.id,
-                                    "name": event.name,
-                                    "arguments": "",
-                                }
-                            if event.id:
-                                tool_call_parts[idx]["id"] = event.id
-                            if event.name:
-                                tool_call_parts[idx]["name"] = event.name
-                            if hasattr(event, "arguments_delta") and event.arguments_delta:
-                                tool_call_parts[idx]["arguments"] += event.arguments_delta
-                            yield _wrap(event)
-                        elif event.type == "usage":
-                            total_input += event.usage.input_tokens
-                            total_output += event.usage.output_tokens
-                        elif event.type == "stop":
-                            stop_reason = event.stop_reason
+                    elif isinstance(event, ToolCallDeltaEvent):
+                        idx = event.index
+                        if idx not in tool_call_parts:
+                            tool_call_parts[idx] = {
+                                "id": event.id,
+                                "name": event.name,
+                                "arguments": "",
+                            }
+                        if event.id:
+                            tool_call_parts[idx]["id"] = event.id
+                        if event.name:
+                            tool_call_parts[idx]["name"] = event.name
+                        if event.arguments_delta:
+                            tool_call_parts[idx]["arguments"] += event.arguments_delta
+                        yield _wrap(event)
+                    elif isinstance(event, UsageEvent):
+                        total_input += event.usage.input_tokens
+                        total_output += event.usage.output_tokens
+                    elif isinstance(event, StopEvent):
+                        stop_reason = event.stop_reason
             except Exception as exc:
                 # Mid-stream failure: can't retry without replaying
                 # partial assistant output. Surface as ErrorEvent + Done

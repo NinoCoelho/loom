@@ -22,10 +22,10 @@ def jittered_backoff(
     return min(raw - raw * jitter_ratio / 2 + jitter, max_delay)
 
 
-async def with_retry(
-    coro_factory: Callable[[], Coroutine],
+async def with_retry[T](
+    coro_factory: Callable[[], Coroutine[Any, Any, T]],
     max_attempts: int = 3,
-) -> Any:
+) -> T:
     last_error: Exception | None = None
     for attempt in range(max_attempts):
         try:
@@ -38,4 +38,6 @@ async def with_retry(
             next(_counter)
             delay = jittered_backoff(attempt + next(_counter) % 3)
             await asyncio.sleep(delay)
+    if last_error is None:
+        raise RuntimeError("with_retry exhausted without capturing an exception")
     raise last_error

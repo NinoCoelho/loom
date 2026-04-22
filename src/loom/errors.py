@@ -563,7 +563,7 @@ def classify_api_error(
     model_lower = (model or "").strip().lower()
 
     def _result(reason: FailoverReason, **overrides) -> ClassifiedError:
-        defaults = dict(
+        defaults: dict[str, Any] = dict(
             status_code=status_code,
             provider=provider or None,
             model=model or None,

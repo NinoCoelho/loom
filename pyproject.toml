@@ -61,6 +61,25 @@ select = ["E", "F", "I", "UP"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = [
+    "asyncssh",
+    "botocore",
+    "botocore.*",
+    "frontmatter",
+    "jwt",
+    "keyring",
+    "mcp",
+    "mcp.*",
+    "numpy",
+    "yaml",
+]
+ignore_missing_imports = true
+
 [dependency-groups]
 dev = [
     "asyncssh>=2.22.0",

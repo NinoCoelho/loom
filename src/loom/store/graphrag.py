@@ -596,10 +596,10 @@ class GraphRAGEngine:
         all_entity_ids = seed_entity_ids | set(trace.expanded_entity_ids)
         if all_entity_ids:
             for eid in all_entity_ids:
-                ent = self._entity_graph.get_entity(eid)
-                if ent:
+                entity = self._entity_graph.get_entity(eid)
+                if entity:
                     subgraph_nodes.append({
-                        "id": ent.id, "name": ent.name, "type": ent.type,
+                        "id": entity.id, "name": entity.name, "type": entity.type,
                     })
             seed_eid = next(iter(all_entity_ids))
             triples = self._entity_graph.get_entity_triples(seed_eid)

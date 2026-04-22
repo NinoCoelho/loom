@@ -264,7 +264,10 @@ class TestMcpClient:
     @pytest.mark.asyncio
     async def test_missing_mcp_package_raises_import_error(self) -> None:
         cfg = McpServerConfig(name="s", transport="stdio", command=["server"])
-        with patch.dict(sys.modules, {"mcp": None, "mcp.client.stdio": None, "mcp.client.sse": None}):
+        with patch.dict(
+            sys.modules,
+            {"mcp": None, "mcp.client.stdio": None, "mcp.client.sse": None},
+        ):
             with pytest.raises(ImportError, match="loom\\[mcp\\]"):
                 async with McpClient(cfg):
                     pass

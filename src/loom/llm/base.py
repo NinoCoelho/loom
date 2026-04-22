@@ -16,7 +16,7 @@ class LLMProvider(ABC):
         model: str | None = None,
     ) -> ChatResponse: ...
 
-    async def chat_stream(
+    def chat_stream(
         self,
         messages: list[ChatMessage],
         *,
