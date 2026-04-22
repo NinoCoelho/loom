@@ -20,6 +20,10 @@
 
 ---
 
+> **New here?** Start with the **[interactive Jupyter tutorial](docs/learn-loom.ipynb)** — it walks you through every concept step by step with runnable code cells: your first agent, custom tools, memory, skills, human-in-the-loop, credentials, and more.
+
+---
+
 ## Build a chat agent in 7 steps
 
 This guide takes you from a 10-line script to a fully-featured interactive chat agent — the same one in [`examples/tui`](examples/tui). Each step adds one layer.
