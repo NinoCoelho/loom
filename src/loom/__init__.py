@@ -67,9 +67,12 @@ from loom.store.embeddings import OllamaEmbeddingProvider, OpenAIEmbeddingProvid
 from loom.store.graph import Entity, EntityGraph, Triple
 from loom.store.graphrag import (
     Chunk,
+    EnrichedRetrieval,
     GraphRAGConfig,
     GraphRAGEngine,
+    HopRecord,
     RetrievalResult,
+    RetrievalTrace,
     chunk_markdown,
 )
 from loom.store.keychain import KeychainStore
@@ -183,7 +186,10 @@ __all__ = [
     "GraphRAGConfig",
     "GraphRAGEngine",
     "Chunk",
+    "EnrichedRetrieval",
+    "HopRecord",
     "RetrievalResult",
+    "RetrievalTrace",
     "Entity",
     "EntityGraph",
     "Triple",

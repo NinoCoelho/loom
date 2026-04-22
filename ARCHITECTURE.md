@@ -431,7 +431,7 @@ Graph-based Retrieval-Augmented Generation. Fully opt-in — pass a `GraphRAGEng
 | Module | Class | Role |
 |---|---|---|
 | `store.vector` | `VectorStore` | SQLite-backed vector store; float32 BLOBs, brute-force cosine search |
-| `store.graph` | `EntityGraph` | SQLite-backed entity-relationship graph; multi-hop BFS traversal |
+| `store.graph` | `EntityGraph` | SQLite-backed entity-relationship graph; multi-hop BFS traversal, paginated listing, subgraph extraction, connected components, degree counts |
 | `store.embeddings` | `OllamaEmbeddingProvider` / `OpenAIEmbeddingProvider` | Async embedding API clients |
 | `store.graphrag` | `GraphRAGEngine` | Orchestrator: chunking, indexing, extraction, retrieval, context formatting |
 

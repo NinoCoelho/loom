@@ -198,7 +198,10 @@ def _format_event(record: HeartbeatRecord, event: HeartbeatEvent) -> str:
 
 def make_run_fn(agent: Any) -> RunFn:
     """Build a RunFn from an existing Agent, using its provider/tools but
-    overriding the system prompt with the heartbeat's instructions."""
+    overriding the system prompt with the heartbeat's instructions.
+
+    Forwards skill_registry so the heartbeat agent can use activate_skill.
+    """
     from loom.loop import Agent, AgentConfig  # local import to avoid circularity
 
     async def _run(instructions: str, messages: list[ChatMessage]) -> AgentTurn:
@@ -211,6 +214,7 @@ def make_run_fn(agent: Any) -> RunFn:
             provider=agent._provider,
             provider_registry=agent._provider_registry,
             tool_registry=agent._tools,
+            skill_registry=agent._skills,
             config=config,
         )
         return await hb_agent.run_turn(messages)

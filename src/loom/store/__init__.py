@@ -18,13 +18,22 @@ from loom.store.graphrag import (
     Chunk as Chunk,
 )
 from loom.store.graphrag import (
+    EnrichedRetrieval as EnrichedRetrieval,
+)
+from loom.store.graphrag import (
     GraphRAGConfig as GraphRAGConfig,
 )
 from loom.store.graphrag import (
     GraphRAGEngine as GraphRAGEngine,
 )
 from loom.store.graphrag import (
+    HopRecord as HopRecord,
+)
+from loom.store.graphrag import (
     RetrievalResult as RetrievalResult,
+)
+from loom.store.graphrag import (
+    RetrievalTrace as RetrievalTrace,
 )
 from loom.store.graphrag import (
     chunk_markdown as chunk_markdown,
@@ -77,8 +86,10 @@ __all__ = [
     "Chunk",
     "Entity",
     "EntityGraph",
+    "EnrichedRetrieval",
     "GraphRAGConfig",
     "GraphRAGEngine",
+    "HopRecord",
     "JwtSigningKeySecret",
     "KeychainStore",
     "MemoryEntry",
@@ -88,6 +99,7 @@ __all__ = [
     "OpenAIEmbeddingProvider",
     "PasswordSecret",
     "RetrievalResult",
+    "RetrievalTrace",
     "Secret",
     "SecretMetadata",
     "SecretStore",

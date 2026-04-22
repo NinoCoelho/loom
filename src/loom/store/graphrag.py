@@ -156,6 +156,29 @@ class RetrievalResult:
     related_entities: list[str] = field(default_factory=list)
 
 
+@dataclass
+class HopRecord:
+    from_entity: str
+    to_entity: str
+    relation: str
+    hop_depth: int
+
+
+@dataclass
+class RetrievalTrace:
+    seed_entities: list[str] = field(default_factory=list)
+    hops: list[HopRecord] = field(default_factory=list)
+    expanded_entity_ids: list[int] = field(default_factory=list)
+
+
+@dataclass
+class EnrichedRetrieval:
+    results: list[RetrievalResult] = field(default_factory=list)
+    trace: RetrievalTrace = field(default_factory=RetrievalTrace)
+    subgraph_nodes: list[dict] = field(default_factory=list)
+    subgraph_edges: list[dict] = field(default_factory=list)
+
+
 def _make_chunk_id(source_path: str, offset: int) -> str:
     raw = f"{source_path}:{offset}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
@@ -285,6 +308,28 @@ class GraphRAGEngine:
         self._entity_graph.close()
         self._chunk_db.close()
 
+    def export_graph(self) -> dict[str, Any]:
+        """Return a JSON-serialisable graph suitable for the UI knowledge view.
+
+        Returns ``{"nodes": [...], "edges": [...], "enabled": True}`` where
+        each node has ``id``, ``name``, ``type`` and each edge has
+        ``source``, ``target``, ``relation``, ``strength``.
+        """
+        entities = self._entity_graph.list_all_entities()
+        nodes = [
+            {"id": e.id, "name": e.name, "type": e.type}
+            for e in entities
+        ]
+        triples = self._entity_graph.list_all_triples()
+        edges = [
+            {
+                "source": t.head_id, "target": t.tail_id,
+                "relation": t.relation, "strength": t.strength,
+            }
+            for t in triples
+        ]
+        return {"nodes": nodes, "edges": edges, "enabled": True}
+
     def __enter__(self) -> GraphRAGEngine:
         return self
 
@@ -403,11 +448,7 @@ class GraphRAGEngine:
             if ent.get("description"):
                 existing = self._entity_graph.get_entity(eid)
                 if existing and not existing.description:
-                    self._entity_graph._db.execute(
-                        "UPDATE entities SET description = ? WHERE id = ?",
-                        (ent["description"][:500], eid),
-                    )
-                    self._entity_graph._db.commit()
+                    self._entity_graph.set_entity_description(eid, ent["description"][:500])
             self._entity_graph.add_mention(eid, chunk_id)
 
         for rel in parsed.get("relations", []):
@@ -449,18 +490,31 @@ class GraphRAGEngine:
         top_k: int | None = None,
         max_hops: int | None = None,
     ) -> list[RetrievalResult]:
+        enriched = await self.retrieve_enriched(query, top_k=top_k, max_hops=max_hops)
+        return enriched.results
+
+    async def retrieve_enriched(
+        self,
+        query: str,
+        *,
+        top_k: int | None = None,
+        max_hops: int | None = None,
+    ) -> EnrichedRetrieval:
         top_k = top_k or self._config.top_k
         max_hops = max_hops if max_hops is not None else self._config.max_hops
 
+        trace = RetrievalTrace()
+        results: list[RetrievalResult] = []
+
         query_embeds = await self._embedder.embed([query])
         if not query_embeds:
-            return []
+            return EnrichedRetrieval(results=results, trace=trace)
         query_vec = query_embeds[0]
 
         vector_hits = self._vector_store.search(query_vec, top_k=top_k * 2)
 
         seen_chunk_ids: set[str] = set()
-        results: list[RetrievalResult] = []
+        seed_entity_ids: set[int] = set()
 
         for hit in vector_hits:
             chunk_data = self._get_chunk(hit.id)
@@ -468,6 +522,8 @@ class GraphRAGEngine:
                 continue
             entities = self._entity_graph.entities_for_chunk(hit.id)
             entity_names = [e.name for e in entities]
+            for e in entities:
+                seed_entity_ids.add(e.id)
             seen_chunk_ids.add(hit.id)
             results.append(
                 RetrievalResult(
@@ -481,16 +537,32 @@ class GraphRAGEngine:
                 )
             )
 
+        trace.seed_entities = [
+            e.name for e in (
+                self._entity_graph.get_entity(eid) for eid in seed_entity_ids
+            ) if e is not None
+        ]
+
         if max_hops > 0 and results:
             graph_ids: set[str] = set()
+            expanded_ids: set[int] = set()
             for r in results[:5]:
                 entities = self._entity_graph.entities_for_chunk(r.chunk_id)
                 for ent in entities:
                     neighbors = self._entity_graph.neighbors(ent.id, max_hops=1)
                     for nb in neighbors:
+                        expanded_ids.add(nb.id)
+                        trace.hops.append(HopRecord(
+                            from_entity=ent.name,
+                            to_entity=nb.name,
+                            relation="",
+                            hop_depth=1,
+                        ))
                         for cid in self._entity_graph.chunks_for_entity(nb.id):
                             if cid not in seen_chunk_ids:
                                 graph_ids.add(cid)
+
+            trace.expanded_entity_ids = list(expanded_ids)
 
             for cid in graph_ids:
                 chunk_data = self._get_chunk(cid)
@@ -503,6 +575,7 @@ class GraphRAGEngine:
                     emb_vec = self._vector_store.get_embedding(cid)
                     if emb_vec:
                         score = _cosine_similarity(query_vec, emb_vec) * 0.7
+                chunk_entities = self._entity_graph.entities_for_chunk(cid)
                 results.append(
                     RetrievalResult(
                         chunk_id=cid,
@@ -511,12 +584,36 @@ class GraphRAGEngine:
                         content=chunk_data.get("content", ""),
                         score=score,
                         source="graph",
-                        related_entities=[],
+                        related_entities=[e.name for e in chunk_entities],
                     )
                 )
 
         results.sort(key=lambda r: r.score, reverse=True)
-        return results[:top_k]
+        results = results[:top_k]
+
+        subgraph_nodes: list[dict] = []
+        subgraph_edges: list[dict] = []
+        all_entity_ids = seed_entity_ids | set(trace.expanded_entity_ids)
+        if all_entity_ids:
+            for eid in all_entity_ids:
+                ent = self._entity_graph.get_entity(eid)
+                if ent:
+                    subgraph_nodes.append({
+                        "id": ent.id, "name": ent.name, "type": ent.type,
+                    })
+            seed_eid = next(iter(all_entity_ids))
+            triples = self._entity_graph.get_entity_triples(seed_eid)
+            for t in triples:
+                if t.head_id in all_entity_ids and t.tail_id in all_entity_ids:
+                    subgraph_edges.append({
+                        "source": t.head_id, "target": t.tail_id,
+                        "relation": t.relation, "strength": t.strength,
+                    })
+
+        return EnrichedRetrieval(
+            results=results, trace=trace,
+            subgraph_nodes=subgraph_nodes, subgraph_edges=subgraph_edges,
+        )
 
     def format_context(
         self,

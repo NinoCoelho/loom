@@ -20,10 +20,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - New optional extra: `pip install "loom[graphrag]"` (depends on `numpy>=1.26`).
 
+- `EntityGraph` query APIs: `list_entities()` (paginated, filterable by type/search, sorted by degree), `get_entity_triples()`, `subgraph()` (multi-hop BFS returning nodes + edges), `connected_components()` (union-find grouping), `entity_degree()`, `entity_counts_by_type()`, `list_all_entities()`, `list_all_triples()`, `set_entity_description()`.
+
+- `GraphRAGEngine.retrieve_enriched()` returns `EnrichedRetrieval` with results, a `RetrievalTrace` (seed entities, hop records, expanded entity IDs), and a subgraph (nodes + edges) for UI visualization. `GraphRAGEngine.export_graph()` returns a JSON-serializable graph for knowledge views.
+
+- `HopRecord`, `RetrievalTrace`, `EnrichedRetrieval` dataclasses exported in `loom.store.graphrag`.
+
 ### Fixed
 
 - GraphRAG enrichment now runs once per `run()`/`run_stream()` call instead of on every loop iteration, preventing duplicate context accumulation in the system prompt.
 - GraphRAG retrieval uses `VectorStore.get_embedding()` public API instead of reaching into internal `_db` attribute.
+- `GraphRAGEngine.export_graph()` and `_store_extraction()` now use `EntityGraph` public methods (`list_all_entities()`, `list_all_triples()`, `set_entity_description()`) instead of reaching into internal `_db`.
 - Bare `except Exception: pass` blocks in the agent loop now log warnings for debuggability.
 - Memory recall fallback weights are named constants (`_W_BM25_NOVEC`, `_W_SALIENCE_NOVEC`, `_W_RECENCY_NOVEC`) instead of inline magic numbers.
 
