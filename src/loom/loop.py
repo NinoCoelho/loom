@@ -264,8 +264,8 @@ class Agent:
             return messages
         user_text = ""
         for msg in reversed(messages):
-            if msg.role == Role.USER and msg.content:
-                user_text = msg.content
+            if msg.role == Role.USER and msg.text_content:
+                user_text = msg.text_content
                 break
         if not user_text:
             return messages
@@ -282,7 +282,7 @@ class Agent:
             if msg.role == Role.SYSTEM:
                 enriched[i] = ChatMessage(
                     role=Role.SYSTEM,
-                    content=msg.content + "\n\n" + context,
+                    content=(msg.text_content or "") + "\n\n" + context,
                 )
                 break
         else:
@@ -330,10 +330,12 @@ class Agent:
         return stream
 
     async def _dispatch_tool(self, tc: ToolCall) -> str:
-        text, _ = await self._dispatch_tool_result(tc)
+        text, _, _ = await self._dispatch_tool_result(tc)
         return text
 
-    async def _dispatch_tool_result(self, tc: ToolCall) -> tuple[str, bool]:
+    async def _dispatch_tool_result(
+        self, tc: ToolCall
+    ) -> tuple[str, bool, list[Any] | None]:
         try:
             args = json.loads(tc.arguments) if tc.arguments else {}
         except json.JSONDecodeError:
@@ -341,7 +343,11 @@ class Agent:
         result = await self._tools.dispatch(tc.name, args)
         if self._config.on_tool_result:
             self._config.on_tool_result(tc, result.to_text())
-        return result.to_text(), bool(getattr(result, "is_error", False))
+        return (
+            result.to_text(),
+            bool(getattr(result, "is_error", False)),
+            getattr(result, "content_parts", None),
+        )
 
     async def run_turn(
         self,
@@ -352,8 +358,8 @@ class Agent:
         if self._config.on_before_turn:
             messages = self._config.on_before_turn(messages)
 
-        if messages and messages[-1].role == Role.USER and messages[-1].content:
-            annotated = self._annotate_short_reply(messages[-1].content)
+        if messages and messages[-1].role == Role.USER and messages[-1].text_content:
+            annotated = self._annotate_short_reply(messages[-1].text_content)
             if annotated:
                 messages[-1] = ChatMessage(role=Role.USER, content=annotated)
 
@@ -418,7 +424,7 @@ class Agent:
                 response.stop_reason not in (StopReason.TOOL_USE,)
                 or not response.message.tool_calls
             ):
-                reply = response.message.content or ""
+                reply = response.message.text_content or ""
                 self._pending_question = self._extract_pending_question(reply)
 
                 if response.model:
@@ -442,6 +448,7 @@ class Agent:
 
             for tc in response.message.tool_calls:
                 total_tool_calls += 1
+                tool_content_parts: list[Any] | None = None
                 if tc.name == "activate_skill" and self._skills:
                     args = json.loads(tc.arguments) if tc.arguments else {}
                     skill_name = args.get("name", "")
@@ -452,12 +459,20 @@ class Agent:
                     else:
                         result_text = f"Skill not found: {skill_name}"
                 else:
-                    result_text = await self._dispatch_tool(tc)
+                    result_text, _, tool_content_parts = await self._dispatch_tool_result(tc)
+
+                tool_msg_content: str | list[Any]
+                if tool_content_parts:
+                    from loom.types import TextPart
+
+                    tool_msg_content = [TextPart(text=result_text)] + tool_content_parts
+                else:
+                    tool_msg_content = result_text
 
                 all_messages.append(
                     ChatMessage(
                         role=Role.TOOL,
-                        content=result_text,
+                        content=tool_msg_content,
                         tool_call_id=tc.id,
                         name=tc.name,
                     )
@@ -491,8 +506,8 @@ class Agent:
         if self._config.on_before_turn:
             messages = self._config.on_before_turn(messages)
 
-        if messages and messages[-1].role == Role.USER and messages[-1].content:
-            annotated = self._annotate_short_reply(messages[-1].content)
+        if messages and messages[-1].role == Role.USER and messages[-1].text_content:
+            annotated = self._annotate_short_reply(messages[-1].text_content)
             if annotated:
                 messages[-1] = ChatMessage(role=Role.USER, content=annotated)
 
@@ -697,7 +712,7 @@ class Agent:
                         result_text = f"Skill not found: {skill_name}"
                         is_error = True
                 else:
-                    result_text, is_error = await self._dispatch_tool_result(tc)
+                    result_text, is_error, stream_tool_parts = await self._dispatch_tool_result(tc)
 
                 yield _wrap(
                     ToolExecResultEvent(
@@ -708,10 +723,18 @@ class Agent:
                     )
                 )
 
+                stream_msg_content: str | list[Any]
+                if stream_tool_parts:
+                    from loom.types import TextPart
+
+                    stream_msg_content = [TextPart(text=result_text)] + stream_tool_parts
+                else:
+                    stream_msg_content = result_text
+
                 all_messages.append(
                     ChatMessage(
                         role=Role.TOOL,
-                        content=result_text,
+                        content=stream_msg_content,
                         tool_call_id=tc.id,
                         name=tc.name,
                     )

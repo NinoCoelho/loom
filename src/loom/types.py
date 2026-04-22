@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Discriminator, Tag
 
 
 class Role(StrEnum):
@@ -47,12 +47,61 @@ class Usage(BaseModel):
     cache_write_tokens: int = 0
 
 
+class TextPart(BaseModel):
+    type: Literal["text"] = "text"
+    text: str
+
+
+class ImagePart(BaseModel):
+    type: Literal["image"] = "image"
+    source: str
+    media_type: str = ""
+
+
+class VideoPart(BaseModel):
+    type: Literal["video"] = "video"
+    source: str
+    media_type: str = ""
+
+
+class FilePart(BaseModel):
+    type: Literal["file"] = "file"
+    source: str
+    media_type: str = ""
+
+
+def _content_part_discriminator(v: object) -> str:
+    if isinstance(v, dict):
+        return v.get("type", "text")
+    return getattr(v, "type", "text")
+
+
+ContentPart = Annotated[
+    Union[
+        Annotated[TextPart, Tag("text")],
+        Annotated[ImagePart, Tag("image")],
+        Annotated[VideoPart, Tag("video")],
+        Annotated[FilePart, Tag("file")],
+    ],
+    Discriminator(_content_part_discriminator),
+]
+
+
 class ChatMessage(BaseModel):
     role: Role
-    content: str | None = None
+    content: str | list[ContentPart] | None = None
     tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None
     name: str | None = None
+
+    @property
+    def text_content(self) -> str | None:
+        if self.content is None:
+            return None
+        if isinstance(self.content, str):
+            return self.content
+        parts = [p.text for p in self.content if isinstance(p, TextPart)]
+        return " ".join(parts) or None
 
 
 class ChatResponse(BaseModel):

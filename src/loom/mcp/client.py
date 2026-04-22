@@ -8,11 +8,17 @@ will raise ``ImportError`` on first use if it is missing.
 from __future__ import annotations
 
 import json
+import logging
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from loom.mcp.config import McpServerConfig
 from loom.mcp.handler import McpToolHandler
 from loom.tools.base import ToolResult
+from loom.types import ImagePart
+
+logger = logging.getLogger(__name__)
 
 
 class McpClient:
@@ -107,12 +113,41 @@ class McpClient:
         self._assert_open()
         result = await self._session.call_tool(name, args)
         parts: list[str] = []
+        content_parts: list[ImagePart] = []
         for content in result.content:
-            if hasattr(content, "text"):
+            if hasattr(content, "text") and content.text is not None:
                 parts.append(content.text)
+            elif hasattr(content, "data") and hasattr(content, "mimeType"):
+                img_dir = Path(tempfile.gettempdir()) / "loom-mcp-images"
+                img_dir.mkdir(parents=True, exist_ok=True)
+                import base64
+                import uuid
+
+                ext = _mime_to_ext(content.mimeType)
+                fname = img_dir / f"{uuid.uuid4().hex[:12]}{ext}"
+                fname.write_bytes(base64.b64decode(content.data))
+                ip = ImagePart(source=str(fname), media_type=content.mimeType)
+                content_parts.append(ip)
+                parts.append(f"[image saved: {fname}]")
             else:
                 parts.append(json.dumps(content.model_dump()))
         return ToolResult(
             text="\n".join(parts),
             is_error=bool(result.isError),
+            content_parts=content_parts or None,
         )
+
+
+_MIME_EXT_MAP: dict[str, str] = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+}
+
+
+def _mime_to_ext(mime: str) -> str:
+    return _MIME_EXT_MAP.get(mime, ".bin")

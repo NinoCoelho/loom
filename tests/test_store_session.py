@@ -3,7 +3,7 @@ import sqlite3
 import pytest
 
 from loom.store.session import SessionStore
-from loom.types import ChatMessage, Role
+from loom.types import ChatMessage, ImagePart, Role, TextPart
 
 
 @pytest.fixture
@@ -126,3 +126,49 @@ def test_list_sessions_includes_context(store):
     by_id = {s["id"]: s for s in sessions}
     assert by_id["s1"]["context"] == "ctx1"
     assert by_id["s2"]["context"] is None
+
+
+def test_multimodal_content_roundtrip(store):
+    sid = "multi-1"
+    store.get_or_create(sid)
+    messages = [
+        ChatMessage(
+            role=Role.USER,
+            content=[TextPart(text="look at this"), ImagePart(source="/img.png", media_type="image/png")],
+        ),
+        ChatMessage(role=Role.ASSISTANT, content="I see it"),
+    ]
+    store.replace_history(sid, messages)
+    history = store.get_history(sid)
+    assert len(history) == 2
+    assert isinstance(history[0].content, list)
+    assert len(history[0].content) == 2
+    assert history[0].content[0].text == "look at this"
+    assert history[0].content[1].source == "/img.png"
+    assert history[1].content == "I see it"
+
+
+def test_plain_text_content_backward_compat(store):
+    sid = "text-only"
+    store.get_or_create(sid)
+    messages = [
+        ChatMessage(role=Role.USER, content="Hello"),
+        ChatMessage(role=Role.ASSISTANT, content="Hi there"),
+    ]
+    store.replace_history(sid, messages)
+    history = store.get_history(sid)
+    assert history[0].content == "Hello"
+    assert history[1].content == "Hi there"
+
+
+def test_legacy_text_rows_read_as_string(store):
+    sid = "legacy-text"
+    store.get_or_create(sid)
+    store._db.execute(
+        "INSERT INTO messages (session_id, seq, role, content) VALUES (?, ?, ?, ?)",
+        (sid, 0, "user", "old school text"),
+    )
+    store._db.commit()
+    history = store.get_history(sid)
+    assert len(history) == 1
+    assert history[0].content == "old school text"

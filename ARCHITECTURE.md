@@ -54,6 +54,14 @@ class ToolHandler(ABC):
 - `dispatch(name, args)` -- invoke by name (catches exceptions, returns error ToolResult)
 - `specs()` -- get all tool declarations for LLM
 
+**ToolResult** carries execution output:
+- `text: str` -- primary text result (always present)
+- `metadata: dict` -- ancillary data (exit codes, status, etc.)
+- `content_parts: list[ContentPart] | None` -- structured media (images, files) alongside text
+- `is_error: bool` -- error flag
+
+When `content_parts` is set, the agent loop constructs a multimodal `ChatMessage` (list of `ContentPart`) instead of a plain string, forwarding images and other media natively to the model.
+
 **Built-in tools:**
 | Tool | File | Description |
 |---|---|---|
@@ -105,7 +113,37 @@ Step-by-step procedure...
 
 **Trust tiers:** `builtin` (seed skills), `user` (operator-authored), `agent` (LLM-authored)
 
-### 4. LLM Provider Layer (`loom.llm`)
+### 4. Multimodal Content (`loom.types`, `loom.media`)
+
+`ChatMessage.content` accepts three forms:
+- `str` — plain text (backward compatible, no change to existing code)
+- `list[ContentPart]` — structured content with typed parts
+- `None` — empty content
+
+**Content part types:**
+
+| Type | Fields | Use case |
+|---|---|---|
+| `TextPart` | `text: str` | Inline text alongside other parts |
+| `ImagePart` | `source: str`, `media_type: str` | PNG, JPEG, GIF, WebP images |
+| `VideoPart` | `source: str`, `media_type: str` | MP4, WebM video clips |
+| `FilePart` | `source: str`, `media_type: str` | PDFs, documents, arbitrary files |
+
+Files are referenced by path or URL. They are loaded from disk at send-time by the provider layer — never stored as base64 blobs in memory or the database. MIME types are inferred from file extensions when `media_type` is omitted.
+
+**`loom.media`** provides file I/O utilities:
+- `infer_media_type(source)` — MIME type from extension
+- `load_file_bytes(source)` — read file from disk or fetch from URL
+- `encode_to_data_url(source)` — base64 data URL (for OpenAI)
+- `encode_to_base64(source)` — raw base64 + media type (for Anthropic)
+
+**Provider integration:**
+- `OpenAICompatibleProvider._convert_content_part()` maps parts to OpenAI's `image_url` format with base64 data URLs
+- `AnthropicProvider._convert_content_part()` maps parts to Anthropic's `image` source blocks with base64 data
+
+**Backward compatibility:** The `ChatMessage.text_content` property extracts text from any content format. All existing code that accesses `.content` as a string continues to work when content is `str`. The agent loop uses `text_content` internally for string operations like short-reply annotation and GraphRAG enrichment.
+
+### 5. LLM Provider Layer (`loom.llm`)
 
 **LLMProvider** (abstract base class):
 ```python
@@ -137,7 +175,7 @@ provider, model = registry.resolve("gpt-4o")
 - Idempotent (already-redacted tokens pass through)
 - Applied to outbound LLM payloads
 
-### 5. Streaming
+### 6. Streaming
 
 `run_turn_stream()` yields `StreamEvent` objects:
 - `ContentDeltaEvent` -- text deltas
@@ -147,7 +185,7 @@ provider, model = registry.resolve("gpt-4o")
 
 The loop handles tool call assembly: collects fragments, dispatches completed tools, continues iteration.
 
-### 6. Human-in-the-Loop (HITL)
+### 7. Human-in-the-Loop (HITL)
 
 **ask_user** tool:
 - `confirm` -- yes/no question
@@ -162,7 +200,7 @@ The loop handles tool call assembly: collects fragments, dispatches completed to
 - Configurable timeout, max output truncation
 - Runs via `asyncio.create_subprocess_shell`
 
-### 7. Model Routing (`loom.routing`)
+### 8. Model Routing (`loom.routing`)
 
 **Message classification:**
 - `coding` -- regex: def/class/import/SELECT/traceback/bug/fix/debug
@@ -175,7 +213,7 @@ The loop handles tool call assembly: collects fragments, dispatches completed to
 - Primary strength based on category + cost tiebreaker
 - Returns best model ID from the registry
 
-### 8. Store Layer (`loom.store`)
+### 9. Store Layer (`loom.store`)
 
 **SessionStore** -- SQLite at `~/.loom/agents/<name>/sessions.sqlite` (per-agent):
 - Message persistence with tool_calls serialization
@@ -207,7 +245,7 @@ The loop handles tool call assembly: collects fragments, dispatches completed to
 - `tempfile.mkstemp` + `os.replace`
 - Cleanup on exception
 
-### 9. Server (`loom.server`)
+### 10. Server (`loom.server`)
 
 **create_app()** factory:
 ```python
@@ -226,7 +264,7 @@ app = create_app(agent, sessions, skills, tool_registry)
 
 Apps extend with domain routes.
 
-### 10. Configuration (`loom.config`)
+### 11. Configuration (`loom.config`)
 
 **LoomConfig** -- JSON-based:
 - `default_model`, `max_iterations`, `system_preamble`, `routing_mode`
@@ -240,7 +278,7 @@ Apps extend with domain routes.
 - `LOOM_LLM_API_KEY` -- API key
 - `LOOM_LLM_MODEL` -- model name
 
-### 11. Error Handling (`loom.errors`, `loom.retry`)
+### 12. Error Handling (`loom.errors`, `loom.retry`)
 
 **Error classification:**
 - `LLMTransportError` -- network/HTTP errors (retryable)
@@ -252,7 +290,7 @@ Apps extend with domain routes.
 - Only retries `LLMTransportError` with retryable classification
 - Monotonic counter for decorrelation
 
-### 12. Agent Communication Protocol (`loom.acp`)
+### 13. Agent Communication Protocol (`loom.acp`)
 
 ACP enables agents to call external agents over WebSocket with Ed25519 authentication.
 
@@ -267,7 +305,7 @@ ACP enables agents to call external agents over WebSocket with Ed25519 authentic
 
 **AcpConfig** -- connection configuration (URL, timeout, retries).
 
-### 12b. MCP Client (`loom.mcp`)
+### 14. MCP Client (`loom.mcp`)
 
 MCP (Model Context Protocol) client integration -- connect to external MCP servers and register their tools with a Loom `ToolRegistry`. Optional subpackage (requires `pip install "loom[mcp]"`).
 
@@ -279,13 +317,15 @@ MCP (Model Context Protocol) client integration -- connect to external MCP serve
 **McpClient** -- async context manager that owns the session lifecycle:
 - `__aenter__` launches the subprocess (stdio) or opens SSE, then calls `initialize()`
 - `list_tools()` discovers remote tools via `tools/list` and returns `McpToolHandler` instances
-- `call_tool(name, args)` proxies to `tools/call`, flattens `content` blocks into `ToolResult.text`
+- `call_tool(name, args)` proxies to `tools/call`, returning a `ToolResult` with optional `content_parts` for native image forwarding
+
+When an MCP server returns `ImageContent` blocks, the client saves them to temporary files and returns `ImagePart` references in `ToolResult.content_parts`. The agent loop then constructs multimodal tool-result messages, forwarding images natively to the model instead of embedding raw base64 as text.
 
 **McpToolHandler** -- a `ToolHandler` wrapping one remote MCP tool. Constructed with a `call_fn` callable (bound to the parent `McpClient.call_tool`) to avoid circular coupling.
 
 **Lifecycle:** the `McpClient` context manager must stay open while tools are in use -- register the handlers inside the `async with` block.
 
-### 13. HITL Broker (`loom.hitl`)
+### 15. HITL Broker (`loom.hitl`)
 
 For web/SSE integrations where the agent can't directly prompt a terminal user.
 
@@ -298,7 +338,7 @@ For web/SSE integrations where the agent can't directly prompt a terminal user.
 
 **Use case:** The FastAPI server creates a `HitlBroker`, wires `BrokerAskUserTool` into the agent's tool registry, and exposes an HTTP endpoint so frontends can resolve pending questions.
 
-### 14. Memory Recall (`loom.store.memory`)
+### 16. Memory Recall (`loom.store.memory`)
 
 Beyond simple search, `MemoryStore.recall()` provides hybrid retrieval:
 
@@ -320,7 +360,7 @@ When wired in, vector similarity is blended into the hybrid score (weight 0.30).
 
 **Memory preview** -- top 5 recent memories auto-injected into system prompt (1500 char budget).
 
-### 15. Credential Subsystem (`loom.auth`, `loom.store.secrets`)
+### 17. Credential Subsystem (`loom.auth`, `loom.store.secrets`)
 
 Implements RFC 0002 (credentials + appliers + policies) and RFC 0003 (SSH tool). Three decoupled layers; each is independently usable.
 
@@ -387,7 +427,7 @@ scope
 
 Requires `loom[ssh]`.
 
-### 16. Heartbeat Scheduler (`loom.heartbeat`)
+### 18. Heartbeat Scheduler (`loom.heartbeat`)
 
 Heartbeats are recurring scheduled tasks. Each one consists of two files in its own directory: `HEARTBEAT.md` (YAML frontmatter with `name`, `description`, `schedule`, `enabled` + a Markdown body used as the agent's system prompt) and `driver.py` (a class `Driver(HeartbeatDriver)` that implements `check(state) -> (events, new_state)`).
 
@@ -422,7 +462,7 @@ scheduler = HeartbeatScheduler(registry, store, run_fn=make_run_fn(agent))
 scheduler.start()  # background asyncio.Task
 ```
 
-### 17. GraphRAG (`loom.store.graphrag`)
+### 19. GraphRAG (`loom.store.graphrag`)
 
 Graph-based Retrieval-Augmented Generation. Fully opt-in — pass a `GraphRAGEngine` to `Agent(graphrag=...)` or leave it `None` (default).
 

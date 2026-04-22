@@ -25,10 +25,58 @@ class StopReason(str, Enum):
 ```python
 class ChatMessage(BaseModel):
     role: Role
-    content: str | None = None
+    content: str | list[ContentPart] | None = None
     tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None
     name: str | None = None
+
+    @property
+    def text_content(self) -> str | None:
+        """Extract text regardless of content format. Backward-compatible."""
+        ...
+```
+
+`content` accepts plain text (`str`) for backward compatibility, or a list of typed content parts for multimodal messages. Use `text_content` when you need the text portion only.
+
+### Content Parts
+
+```python
+class TextPart(BaseModel):
+    type: Literal["text"] = "text"
+    text: str
+
+class ImagePart(BaseModel):
+    type: Literal["image"] = "image"
+    source: str       # file path or URL
+    media_type: str = ""  # e.g. "image/png"; inferred from extension if omitted
+
+class VideoPart(BaseModel):
+    type: Literal["video"] = "video"
+    source: str
+    media_type: str = ""  # e.g. "video/mp4"
+
+class FilePart(BaseModel):
+    type: Literal["file"] = "file"
+    source: str
+    media_type: str = ""  # e.g. "application/pdf"
+
+ContentPart = Annotated[Union[TextPart, ImagePart, VideoPart, FilePart], Discriminator(...)]
+```
+
+Files are referenced by path or URL and loaded from disk at send-time. They are never stored as base64 blobs in memory or the database.
+
+**Usage:**
+```python
+from loom import ChatMessage, Role, TextPart, ImagePart
+
+# Plain text (backward compatible)
+msg = ChatMessage(role=Role.USER, content="Describe this image")
+
+# Multimodal
+msg = ChatMessage(role=Role.USER, content=[
+    TextPart(text="What's in this image?"),
+    ImagePart(source="/path/to/photo.png"),
+])
 ```
 
 ### `ToolCall`
@@ -160,9 +208,10 @@ class ToolHandler(ABC):
 ### `ToolResult`
 ```python
 class ToolResult:
-    def __init__(self, text: str, metadata: dict | None = None): ...
+    def __init__(self, text: str, metadata: dict | None = None, content_parts: list[ContentPart] | None = None): ...
     def to_text(self) -> str: ...
 ```
+`content_parts` carries structured media (e.g. images from MCP tools) alongside the text result. When present, the agent loop constructs a multimodal `ChatMessage` for the tool result.
 
 ### `ToolRegistry`
 ```python

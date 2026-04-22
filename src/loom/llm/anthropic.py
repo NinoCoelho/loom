@@ -1,24 +1,34 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator
+from typing import Any
 
 from loom.errors import LLMError, LLMTransportError, MalformedOutputError
 from loom.llm.base import LLMProvider
+from loom.media import encode_to_base64, infer_media_type
 from loom.types import (
     ChatMessage,
     ChatResponse,
     ContentDeltaEvent,
+    ContentPart,
+    FilePart,
+    ImagePart,
     Role,
     StopEvent,
     StopReason,
     StreamEvent,
+    TextPart,
     ToolCall,
     ToolCallDeltaEvent,
     ToolSpec,
     Usage,
     UsageEvent,
+    VideoPart,
 )
+
+logger = logging.getLogger(__name__)
 
 _ANTHROPIC_STOP_MAP: dict[str, StopReason] = {
     "end_turn": StopReason.STOP,
@@ -58,9 +68,40 @@ class AnthropicProvider(LLMProvider):
     def _extract_system(self, messages: list[ChatMessage]) -> str | None:
         parts: list[str] = []
         for msg in messages:
-            if msg.role == Role.SYSTEM and msg.content:
-                parts.append(msg.content)
+            if msg.role == Role.SYSTEM and msg.text_content:
+                parts.append(msg.text_content)
         return "\n\n".join(parts) if parts else None
+
+    def _convert_content_part(self, part: ContentPart) -> dict[str, Any]:
+        if isinstance(part, TextPart):
+            return {"type": "text", "text": part.text}
+        if isinstance(part, ImagePart):
+            mt = part.media_type or infer_media_type(part.source)
+            b64, _ = encode_to_base64(part.source, mt)
+            return {
+                "type": "image",
+                "source": {"type": "base64", "media_type": mt, "data": b64},
+            }
+        if isinstance(part, VideoPart):
+            mt = part.media_type or infer_media_type(part.source)
+            b64, _ = encode_to_base64(part.source, mt)
+            return {
+                "type": "image",
+                "source": {"type": "base64", "media_type": mt, "data": b64},
+            }
+        if isinstance(part, FilePart):
+            mt = part.media_type or infer_media_type(part.source)
+            if mt.startswith("text/"):
+                from loom.media import load_file_bytes
+
+                raw_bytes, _ = load_file_bytes(part.source)
+                return {"type": "text", "text": raw_bytes.decode("utf-8", errors="replace")}
+            b64, _ = encode_to_base64(part.source, mt)
+            return {
+                "type": "image",
+                "source": {"type": "base64", "media_type": mt, "data": b64},
+            }
+        return {"type": "text", "text": str(part)}
 
     def _convert_messages(self, messages: list[ChatMessage]) -> list[dict]:
         anthropic_msgs: list[dict] = []
@@ -78,11 +119,14 @@ class AnthropicProvider(LLMProvider):
                 continue
 
             if msg.role == Role.TOOL:
+                tool_content: Any = msg.text_content or ""
+                if not isinstance(msg.content, str) and msg.content is not None:
+                    tool_content = [self._convert_content_part(p) for p in msg.content]
                 tool_result_buffer.append(
                     {
                         "type": "tool_result",
                         "tool_use_id": msg.tool_call_id or "",
-                        "content": msg.content or "",
+                        "content": tool_content,
                     }
                 )
                 continue
@@ -92,7 +136,12 @@ class AnthropicProvider(LLMProvider):
             if msg.role == Role.ASSISTANT:
                 content: list[dict] = []
                 if msg.content:
-                    content.append({"type": "text", "text": msg.content})
+                    if isinstance(msg.content, str):
+                        content.append({"type": "text", "text": msg.content})
+                    else:
+                        for p in msg.content:
+                            if isinstance(p, TextPart):
+                                content.append({"type": "text", "text": p.text})
                 if msg.tool_calls:
                     for tc in msg.tool_calls:
                         try:
@@ -109,7 +158,11 @@ class AnthropicProvider(LLMProvider):
                         )
                 anthropic_msgs.append({"role": "assistant", "content": content or ""})
             elif msg.role == Role.USER:
-                anthropic_msgs.append({"role": "user", "content": msg.content or ""})
+                if isinstance(msg.content, list):
+                    converted = [self._convert_content_part(p) for p in msg.content]
+                    anthropic_msgs.append({"role": "user", "content": converted})
+                else:
+                    anthropic_msgs.append({"role": "user", "content": msg.content or ""})
 
         flush_tool_buffer()
         return anthropic_msgs

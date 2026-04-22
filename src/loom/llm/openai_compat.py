@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -8,20 +9,28 @@ import httpx
 
 from loom.errors import LLMTransportError, MalformedOutputError
 from loom.llm.base import LLMProvider
+from loom.media import encode_to_data_url, infer_media_type
 from loom.types import (
     ChatMessage,
     ChatResponse,
     ContentDeltaEvent,
+    ContentPart,
+    FilePart,
+    ImagePart,
     Role,
     StopEvent,
     StopReason,
     StreamEvent,
+    TextPart,
     ToolCall,
     ToolCallDeltaEvent,
     ToolSpec,
     Usage,
     UsageEvent,
+    VideoPart,
 )
+
+logger = logging.getLogger(__name__)
 
 _STOP_REASON_MAP: dict[str, StopReason] = {
     "stop": StopReason.STOP,
@@ -60,10 +69,30 @@ class OpenAICompatibleProvider(LLMProvider):
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
+    def _convert_content_part(self, part: ContentPart) -> dict[str, Any]:
+        if isinstance(part, TextPart):
+            return {"type": "text", "text": part.text}
+        if isinstance(part, ImagePart):
+            mt = part.media_type or infer_media_type(part.source)
+            url = encode_to_data_url(part.source, mt)
+            return {"type": "image_url", "image_url": {"url": url}}
+        if isinstance(part, VideoPart):
+            mt = part.media_type or infer_media_type(part.source)
+            url = encode_to_data_url(part.source, mt)
+            return {"type": "image_url", "image_url": {"url": url}}
+        if isinstance(part, FilePart):
+            mt = part.media_type or infer_media_type(part.source)
+            url = encode_to_data_url(part.source, mt)
+            return {"type": "image_url", "image_url": {"url": url}}
+        return {"type": "text", "text": str(part)}
+
     def _convert_message(self, msg: ChatMessage) -> dict[str, Any]:
         d: dict[str, Any] = {"role": msg.role.value}
         if msg.content is not None:
-            d["content"] = msg.content
+            if isinstance(msg.content, str):
+                d["content"] = msg.content
+            else:
+                d["content"] = [self._convert_content_part(p) for p in msg.content]
         if msg.tool_calls is not None:
             d["tool_calls"] = [
                 {

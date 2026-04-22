@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from loom.types import ToolSpec
+from loom.types import ContentPart, ToolSpec
 
 
 class ToolResult:
@@ -11,10 +11,12 @@ class ToolResult:
         text: str,
         metadata: dict | None = None,
         is_error: bool = False,
+        content_parts: list[ContentPart] | None = None,
     ) -> None:
         self.text = text
         self.metadata = metadata or {}
         self.is_error = is_error
+        self.content_parts = content_parts
 
     def to_text(self) -> str:
         return self.text

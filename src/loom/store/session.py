@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from loom.types import ChatMessage, Role
+from loom.types import ChatMessage, ContentPart, Role, TextPart
 
 
 class SessionStore:
@@ -109,6 +109,21 @@ class SessionStore:
         self._db.commit()
         return {"id": session_id, "title": title, "context": context}
 
+    def _deserialize_content(self, raw: str | None) -> str | list[ContentPart] | None:
+        if raw is None:
+            return None
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict) and "type" in parsed[0]:
+                    from pydantic import TypeAdapter
+
+                    adapter = TypeAdapter(list[ContentPart])
+                    return adapter.validate_python(parsed)
+            except (json.JSONDecodeError, Exception):
+                pass
+        return raw
+
     def get_history(self, session_id: str) -> list[ChatMessage]:
         rows = self._db.execute(
             "SELECT role, content, tool_calls, tool_call_id, name "
@@ -126,13 +141,20 @@ class SessionStore:
             messages.append(
                 ChatMessage(
                     role=Role(row[0]),
-                    content=row[1],
+                    content=self._deserialize_content(row[1]),
                     tool_calls=tool_calls,
                     tool_call_id=row[3],
                     name=row[4],
                 )
             )
         return messages
+
+    def _serialize_content(self, content: str | list[ContentPart] | None) -> str | None:
+        if content is None:
+            return None
+        if isinstance(content, str):
+            return content
+        return json.dumps([p.model_dump() for p in content])
 
     def replace_history(self, session_id: str, messages: list[ChatMessage]) -> None:
         self._db.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
@@ -155,7 +177,7 @@ class SessionStore:
                     session_id,
                     seq,
                     msg.role.value,
-                    msg.content,
+                    self._serialize_content(msg.content),
                     tc_json,
                     msg.tool_call_id,
                     msg.name,

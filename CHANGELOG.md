@@ -8,6 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Multimodal content support.** `ChatMessage.content` now accepts `str | list[ContentPart] | None` where `ContentPart` is a discriminated union of `TextPart`, `ImagePart`, `VideoPart`, and `FilePart`. Files are referenced by path or URL — loaded from disk at send-time, never stored as base64 blobs in memory or the database. All existing code using `content="string"` is fully backward compatible.
+
+- `loom.media` module: `infer_media_type()`, `load_file_bytes()`, `encode_to_data_url()`, `encode_to_base64()` — file loading and MIME inference for images, video, and arbitrary files.
+
+- `ChatMessage.text_content` property: extracts the text portion regardless of content format (str or list[ContentPart]). Backward-compatible accessor for all existing code that treats content as a string.
+
+- OpenAI-compatible provider (`OpenAICompatibleProvider`) now converts `ContentPart` lists to native OpenAI content blocks (`image_url` with base64 data URLs) when sending messages to the API.
+
+- Anthropic provider (`AnthropicProvider`) now converts `ContentPart` lists to Anthropic-native content blocks (`image` with base64 source) for user messages and tool results.
+
+- MCP client (`McpClient.call_tool`) now detects `ImageContent` blocks from MCP servers, saves them to temporary files, and returns them as `ImagePart` references via `ToolResult.content_parts`. Images are forwarded natively to the model instead of being serialized as JSON text.
+
+- `ToolResult` now accepts an optional `content_parts: list[ContentPart]` parameter. Tool handlers can return structured media content alongside text. The agent loop constructs multimodal `ChatMessage`s when `content_parts` is present.
+
+- `SessionStore` now handles multimodal content transparently: `str` content is stored as plain text (unchanged), `list[ContentPart]` content is JSON-serialized. Reading auto-detects the format.
+
+- New public types exported from `loom.types`: `TextPart`, `ImagePart`, `VideoPart`, `FilePart`, `ContentPart`.
+
 - `loom.store.graphrag` subpackage: GraphRAG engine for knowledge-graph-augmented retrieval. `GraphRAGEngine` orchestrates markdown chunking (`chunk_markdown`), embedding + vector storage (`VectorStore`), entity/relationship extraction via LLM with gleaning (`EntityGraph`), and hybrid retrieval (vector similarity + multi-hop graph expansion). Context is injected into the agent loop via `_graphrag_enrich()`. Fully opt-in — pass a `GraphRAGEngine` to `Agent(graphrag=...)` or leave it `None` (default) for no change in behavior.
 
 - `loom.store.vector` — `VectorStore`: SQLite-backed vector store. Float32 vectors packed as BLOBs, brute-force cosine similarity search. numpy-accelerated batch cosine with pure-Python fallback. Public API: `upsert / remove / search / get / get_embedding / count / sources`.
