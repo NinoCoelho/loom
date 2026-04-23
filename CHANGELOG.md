@@ -46,6 +46,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Web search: switch to `ddgs` package and fix event-loop blocking.** `DuckDuckGoSearchProvider` now uses the `ddgs` library (deedy5/ddgs v9+) instead of the deprecated `duckduckgo-search` package. Sync DDGS calls run via `asyncio.to_thread()` so they no longer block the event loop — this was the root cause of both `CONCURRENT` and `FALLBACK` composite strategies failing to invoke other providers when DDGS was slow or rate-limited. Dependency updated from `duckduckgo-search>=7.0` to `ddgs>=9.0` in `loom[search]` and `loom[dev]` extras.
+
 - GraphRAG enrichment now runs once per `run()`/`run_stream()` call instead of on every loop iteration, preventing duplicate context accumulation in the system prompt.
 - GraphRAG retrieval uses `VectorStore.get_embedding()` public API instead of reaching into internal `_db` attribute.
 - `GraphRAGEngine.export_graph()` and `_store_extraction()` now use `EntityGraph` public methods (`list_all_entities()`, `list_all_triples()`, `set_entity_description()`) instead of reaching into internal `_db`.

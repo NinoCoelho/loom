@@ -72,6 +72,18 @@ When `content_parts` is set, the agent loop constructs a multimodal `ChatMessage
 | `memory` | `tools/memory.py` | Read/write/search/list/delete on structured memory |
 | `delegate` | `tools/delegate.py` | Inter-agent delegation via AgentRuntime |
 | `edit_identity` | `tools/profile.py` | Edit SOUL/IDENTITY/USER.md within permission bounds |
+| `web_search` | `tools/search.py` | Multi-provider web search (DDGS, Brave, Tavily, Google) with concurrent/fallback strategies |
+
+**Search providers** (`loom.search`):
+
+| Provider | Class | Requires API key | Install |
+|---|---|---|---|
+| DuckDuckGo (default) | `DuckDuckGoSearchProvider` | No | `pip install "loom[search]"` |
+| Brave | `BraveSearchProvider` | Yes | — |
+| Tavily | `TavilySearchProvider` | Yes | — |
+| Google Custom Search | `GoogleSearchProvider` | Yes (`api_key` + `cx`) | — |
+
+The DDGS provider runs in a background thread via `asyncio.to_thread()` to avoid blocking the event loop. Multiple providers can be composed with `CompositeSearchProvider` using `CONCURRENT` (fire all, merge, deduplicate) or `FALLBACK` (try sequentially, stop when enough results) strategies.
 
 **Adding custom tools** -- subclass `ToolHandler`, implement `tool` and `invoke`, register with `ToolRegistry`.
 

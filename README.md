@@ -338,6 +338,7 @@ The steps above cover the most common patterns. Loom has more:
 | SSH tool — run commands on remote hosts; auth via credential pipeline | `loom.tools.ssh` (`loom[ssh]`) |
 | Recurring tasks — cron/interval-scheduled drivers that detect events and trigger agent runs | `loom.heartbeat` |
 | GraphRAG — knowledge-graph-augmented retrieval with vector search, entity extraction, and context injection | `loom.store.graphrag` (`loom[graphrag]`) |
+| Web search — multi-provider web search (DDGS, Brave, Tavily, Google) with concurrent/fallback strategies | `loom.search`, `loom.tools.search` (`loom[search]`) |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation and [docs/API.md](docs/API.md) for the complete API reference.
 

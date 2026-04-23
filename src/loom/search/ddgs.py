@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from loom.search.base import SearchProviderError, SearchResult
@@ -13,11 +14,11 @@ class DuckDuckGoSearchProvider:
         *,
         proxy: str | None = None,
         timeout: int = 10,
-        headers: dict | None = None,
+        verify: bool = True,
     ) -> None:
         self._proxy = proxy
         self._timeout = timeout
-        self._headers = headers
+        self._verify = verify
 
     @property
     def name(self) -> str:
@@ -25,22 +26,15 @@ class DuckDuckGoSearchProvider:
 
     async def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS  # noqa: F401
         except ImportError as exc:
             raise SearchProviderError(
                 "ddgs",
-                "duckduckgo-search is not installed. Install with: pip install loom[search]",
+                "ddgs is not installed. Install with: pip install 'loom[search]'",
             ) from exc
 
         try:
-            kwargs: dict = {}
-            if self._proxy:
-                kwargs["proxy"] = self._proxy
-            if self._headers:
-                kwargs["headers"] = self._headers
-
-            with DDGS(**kwargs) as ddgs:
-                raw = ddgs.text(query, max_results=max_results)
+            raw = await asyncio.to_thread(self._run, query, max_results)
         except Exception as exc:
             msg = str(exc)
             status = None
@@ -53,10 +47,19 @@ class DuckDuckGoSearchProvider:
             results.append(
                 SearchResult(
                     title=item.get("title", ""),
-                    url=item.get("href", ""),
+                    url=item.get("href") or item.get("url", ""),
                     snippet=item.get("body", ""),
                     source="ddgs",
                     raw=item,
                 )
             )
         return results
+
+    def _run(self, query: str, max_results: int) -> list[dict]:
+        from ddgs import DDGS
+
+        ddgs = DDGS(proxy=self._proxy, timeout=self._timeout, verify=self._verify)
+        raw = ddgs.text(query, max_results=max_results)
+        if not raw:
+            raw = ddgs.news(query, max_results=max_results)
+        return raw or []
