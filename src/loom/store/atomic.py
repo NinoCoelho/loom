@@ -1,3 +1,10 @@
+"""Atomic file write — write-then-rename to avoid partial files.
+
+Uses a temporary file in the same directory and :func:`os.replace` so the
+rename is atomic on POSIX filesystems. The result is that readers never see
+a partially-written file, even if the process is killed mid-write.
+"""
+
 from __future__ import annotations
 
 import os

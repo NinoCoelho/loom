@@ -1,3 +1,13 @@
+"""Configuration management — resolving, merging, and persisting.
+
+:func:`resolve_config` merges a chain of config sources (file → env → args)
+into a single :class:`LoomConfig`. :func:`resolve_from_env` reads from
+environment variables only.
+
+:class:`ConfigStore` persists the resolved config to disk; individual
+sections (e.g. :class:`ProviderConfig`) are exposed as typed Pydantic models.
+"""
+
 from loom.config.base import (
     ConfigStore as ConfigStore,
 )

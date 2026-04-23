@@ -1,3 +1,15 @@
+"""Crontab-style schedule parsing and ``is_due`` checking.
+
+Supports three schedule syntaxes:
+
+* **Crontab** — five-field: ``min hour dom mon dow`` (e.g. ``0 9 * * *``).
+* **Interval** — natural language: ``every N minutes/hours/days``.
+* **HH:MM UTC** — fixed daily time: ``14:30``.
+
+:func:`parse_schedule` returns a :class:`Schedule` object; :func:`is_due`
+checks whether a given UTC timestamp falls within the schedule window.
+"""
+
 from __future__ import annotations
 
 import re

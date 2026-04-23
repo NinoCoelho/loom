@@ -1,3 +1,12 @@
+"""Data types for the heartbeat subsystem.
+
+* :class:`HeartbeatDriver` — abstract base for heartbeat run functions.
+* :class:`HeartbeatRecord` — heartbeat metadata persisted to disk.
+* :class:`HeartbeatRunRecord` — result of a single execution.
+* ``validate_heartbeat_id`` — validates a heartbeat ID against the
+  ``^[a-zA-Z0-9_-]{1,64}$`` pattern.
+"""
+
 from __future__ import annotations
 
 import re

@@ -1,3 +1,11 @@
+"""Agent home directory management.
+
+An :class:`AgentHome` manages a directory tree containing the agent's
+soul (system personality), identity, user preferences, skills, memory,
+and vault. It handles initialisation and atomic file I/O for the
+markdown-based configuration files.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

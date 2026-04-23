@@ -1,3 +1,12 @@
+"""Typed file vault — structured binary/blob storage for agents.
+
+:class:`VaultProvider` is a pluggable protocol; the default
+:class:`FilesystemVaultProvider` stores typed blobs on disk with a
+SQLite manifest. Vault files can carry arbitrary metadata (tags, MIME
+type, size, digest) and support rename, copy, and list-by-type operations.
+The vault tool (:mod:`loom.tools.vault`) surfaces these operations to the LLM.
+"""
+
 from __future__ import annotations
 
 import json
@@ -25,16 +34,12 @@ class VaultProvider(Protocol):
         """Filesystem root of the vault (for directory-based enumeration)."""
         ...
 
-    async def search(
-        self, query: str, limit: int = 10
-    ) -> list[dict[str, Any]]: ...
+    async def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]: ...
     async def search_scoped(
         self, query: str, path_prefix: str, limit: int = 10
     ) -> list[dict[str, Any]]: ...
     async def read(self, path: str) -> str: ...
-    async def write(
-        self, path: str, content: str, metadata: dict | None = None
-    ) -> None: ...
+    async def write(self, path: str, content: str, metadata: dict | None = None) -> None: ...
     async def list(self, prefix: str = "") -> list[str]: ...
     async def delete(self, path: str) -> None: ...
     def read_frontmatter(self, path: str) -> dict[str, Any]: ...
@@ -153,10 +158,7 @@ class FilesystemVaultProvider:
             "FROM vault_fts WHERE vault_fts MATCH ? ORDER BY rank LIMIT ?",
             (query, limit),
         ).fetchall()
-        return [
-            {"path": r[0], "title": r[1], "snippet": r[2], "score": r[3]}
-            for r in rows
-        ]
+        return [{"path": r[0], "title": r[1], "snippet": r[2], "score": r[3]} for r in rows]
 
     async def search_scoped(
         self, query: str, path_prefix: str, limit: int = 10
@@ -171,10 +173,7 @@ class FilesystemVaultProvider:
             "ORDER BY rank LIMIT ?",
             (escaped, pattern, limit),
         ).fetchall()
-        return [
-            {"path": r[0], "title": r[1], "snippet": r[2], "score": r[3]}
-            for r in rows
-        ]
+        return [{"path": r[0], "title": r[1], "snippet": r[2], "score": r[3]} for r in rows]
 
     async def read(self, path: str) -> str:
         target = self._safe_resolve(path)

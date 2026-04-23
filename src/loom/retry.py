@@ -1,3 +1,11 @@
+"""Retry utilities with jittered exponential backoff.
+
+Wraps coroutines with retry logic driven by :func:`classify_api_error`,
+so transient failures (rate limits, timeouts, overloaded servers) are
+automatically retried while permanent failures (auth, billing) abort
+immediately.
+"""
+
 from __future__ import annotations
 
 import asyncio

@@ -50,8 +50,6 @@ class ScopeAccessDenied(AuthApplierError):
     """
 
     def __init__(self, principal: str, scope: str) -> None:
-        super().__init__(
-            f"Principal {principal!r} is not allowed to access scope {scope!r}"
-        )
+        super().__init__(f"Principal {principal!r} is not allowed to access scope {scope!r}")
         self.principal = principal
         self.scope = scope

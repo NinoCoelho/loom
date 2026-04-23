@@ -1,3 +1,12 @@
+"""Model selection given a message category and provider registry.
+
+:class:`ModelStrengths` encodes a model's relative strengths across
+dimensions (speed, cost, reasoning, coding). :func:`choose_model` classifies
+the message, scores each registered model against the category, and returns
+the highest-scoring candidate. A cost bonus is applied so cheaper models
+are preferred when strengths are equal.
+"""
+
 from __future__ import annotations
 
 from loom.llm.registry import ProviderRegistry

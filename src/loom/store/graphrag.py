@@ -101,9 +101,7 @@ Respond with ONLY valid JSON:\
 @dataclass
 class OntologyConfig:
     entity_types: list[str] = field(default_factory=lambda: list(_DEFAULT_ENTITY_TYPES))
-    core_relations: list[str] = field(
-        default_factory=lambda: list(_DEFAULT_CORE_RELATIONS)
-    )
+    core_relations: list[str] = field(default_factory=lambda: list(_DEFAULT_CORE_RELATIONS))
     allow_custom_relations: bool = True
     aliases: dict[str, list[str]] = field(default_factory=dict)
 
@@ -316,15 +314,14 @@ class GraphRAGEngine:
         ``source``, ``target``, ``relation``, ``strength``.
         """
         entities = self._entity_graph.list_all_entities()
-        nodes = [
-            {"id": e.id, "name": e.name, "type": e.type}
-            for e in entities
-        ]
+        nodes = [{"id": e.id, "name": e.name, "type": e.type} for e in entities]
         triples = self._entity_graph.list_all_triples()
         edges = [
             {
-                "source": t.head_id, "target": t.tail_id,
-                "relation": t.relation, "strength": t.strength,
+                "source": t.head_id,
+                "target": t.tail_id,
+                "relation": t.relation,
+                "strength": t.strength,
             }
             for t in triples
         ]
@@ -355,9 +352,7 @@ class GraphRAGEngine:
             for cid in old_ids:
                 self._vector_store.remove(cid)
             placeholders = ",".join("?" for _ in old_ids)
-            self._chunk_db.execute(
-                f"DELETE FROM chunks WHERE id IN ({placeholders})", old_ids
-            )
+            self._chunk_db.execute(f"DELETE FROM chunks WHERE id IN ({placeholders})", old_ids)
             self._chunk_db.commit()
 
         texts = [c.content for c in chunks]
@@ -369,8 +364,12 @@ class GraphRAGEngine:
                 "(id, source_path, heading, content, char_offset, indexed_at) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (
-                    chunk.id, chunk.source_path, chunk.heading,
-                    chunk.content, chunk.char_offset, time.time(),
+                    chunk.id,
+                    chunk.source_path,
+                    chunk.heading,
+                    chunk.content,
+                    chunk.char_offset,
+                    time.time(),
                 ),
             )
             self._vector_store.upsert(
@@ -401,9 +400,7 @@ class GraphRAGEngine:
         for cid in old_ids:
             self._vector_store.remove(cid)
         placeholders = ",".join("?" for _ in old_ids)
-        self._chunk_db.execute(
-            f"DELETE FROM chunks WHERE id IN ({placeholders})", old_ids
-        )
+        self._chunk_db.execute(f"DELETE FROM chunks WHERE id IN ({placeholders})", old_ids)
         self._chunk_db.commit()
 
     async def _extract_entities(self, chunks: list[Chunk]) -> None:
@@ -440,9 +437,7 @@ class GraphRAGEngine:
                     glean_resp = await self._llm.chat(glean_messages)
                 except Exception:
                     break
-                glean_parsed = _parse_extraction_response(
-                    glean_resp.message.content or ""
-                )
+                glean_parsed = _parse_extraction_response(glean_resp.message.content or "")
                 self._store_extraction(glean_parsed, chunk.id)
 
     def _store_extraction(self, parsed: dict[str, Any], chunk_id: str) -> None:
@@ -492,9 +487,7 @@ class GraphRAGEngine:
             ):
                 relation = "related_to"
 
-            self._entity_graph.add_triple(
-                head_id, relation, tail_id, chunk_id, desc, strength
-            )
+            self._entity_graph.add_triple(head_id, relation, tail_id, chunk_id, desc, strength)
 
     async def retrieve(
         self,
@@ -551,9 +544,9 @@ class GraphRAGEngine:
             )
 
         trace.seed_entities = [
-            e.name for e in (
-                self._entity_graph.get_entity(eid) for eid in seed_entity_ids
-            ) if e is not None
+            e.name
+            for e in (self._entity_graph.get_entity(eid) for eid in seed_entity_ids)
+            if e is not None
         ]
 
         if max_hops > 0 and results:
@@ -565,12 +558,14 @@ class GraphRAGEngine:
                     neighbors = self._entity_graph.neighbors(ent.id, max_hops=1)
                     for nb in neighbors:
                         expanded_ids.add(nb.id)
-                        trace.hops.append(HopRecord(
-                            from_entity=ent.name,
-                            to_entity=nb.name,
-                            relation="",
-                            hop_depth=1,
-                        ))
+                        trace.hops.append(
+                            HopRecord(
+                                from_entity=ent.name,
+                                to_entity=nb.name,
+                                relation="",
+                                hop_depth=1,
+                            )
+                        )
                         for cid in self._entity_graph.chunks_for_entity(nb.id):
                             if cid not in seen_chunk_ids:
                                 graph_ids.add(cid)
@@ -612,10 +607,14 @@ class GraphRAGEngine:
                 ent = self._entity_graph.get_entity(eid)
                 if ent:
                     degree = self._entity_graph.entity_degree(eid)
-                    subgraph_nodes.append({
-                        "id": ent.id, "name": ent.name, "type": ent.type,
-                        "degree": degree,
-                    })
+                    subgraph_nodes.append(
+                        {
+                            "id": ent.id,
+                            "name": ent.name,
+                            "type": ent.type,
+                            "degree": degree,
+                        }
+                    )
             seen_triple_ids: set[int] = set()
             for eid in all_entity_ids:
                 for t in self._entity_graph.get_entity_triples(eid):
@@ -623,14 +622,20 @@ class GraphRAGEngine:
                         continue
                     seen_triple_ids.add(t.id)
                     if t.head_id in all_entity_ids and t.tail_id in all_entity_ids:
-                        subgraph_edges.append({
-                            "source": t.head_id, "target": t.tail_id,
-                            "relation": t.relation, "strength": t.strength,
-                        })
+                        subgraph_edges.append(
+                            {
+                                "source": t.head_id,
+                                "target": t.tail_id,
+                                "relation": t.relation,
+                                "strength": t.strength,
+                            }
+                        )
 
         return EnrichedRetrieval(
-            results=results, trace=trace,
-            subgraph_nodes=subgraph_nodes, subgraph_edges=subgraph_edges,
+            results=results,
+            trace=trace,
+            subgraph_nodes=subgraph_nodes,
+            subgraph_edges=subgraph_edges,
         )
 
     def format_context(
@@ -683,9 +688,7 @@ class GraphRAGEngine:
         }
 
 
-def ontology_relation_ok(
-    relation: str, core_relations: list[str], allow_custom: bool
-) -> bool:
+def ontology_relation_ok(relation: str, core_relations: list[str], allow_custom: bool) -> bool:
     if relation in core_relations:
         return True
     return allow_custom

@@ -1,3 +1,11 @@
+"""Config data models and on-disk persistence.
+
+* :class:`ProviderConfig` — per-provider settings (base URL, API key, model).
+* :class:`LoomConfig` — top-level config with a default model and provider map.
+* :class:`ConfigStore` — reads/writes :class:`LoomConfig` as JSON to disk,
+  with atomic writes and graceful fallback on corruption.
+"""
+
 from __future__ import annotations
 
 import json

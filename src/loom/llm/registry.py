@@ -1,3 +1,14 @@
+"""Model-to-provider registry.
+
+:class:`ProviderRegistry` maps a ``model_id`` (the name used internally by loom)
+to a ``(provider, upstream_model)`` pair. The first registered model becomes the
+default; callers can override per-call via the ``model`` argument.
+
+``upstream_model`` is the actual model string passed to the provider's API
+(e.g. ``"claude-3-5-sonnet-20241022"``), which may differ from the ``model_id``
+when the registry is used to alias or abstract provider endpoints.
+"""
+
 from __future__ import annotations
 
 from loom.llm.base import LLMProvider

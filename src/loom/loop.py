@@ -1,3 +1,12 @@
+"""Agent loop implementation.
+
+Orchestrates the turn-based agent cycle: building the system prompt,
+calling the LLM (with or without streaming), dispatching tool calls,
+and accumulating messages until the model stops or the iteration limit
+is reached. Supports GraphRAG enrichment, per-turn hooks, and
+custom event serialisation.
+"""
+
 from __future__ import annotations
 
 import inspect
@@ -157,6 +166,7 @@ class AgentConfig:
         # #11: rewrite the message list at the top of every loop iteration.
         self.before_llm_call = before_llm_call
 
+
 class Agent:
     def __init__(
         self,
@@ -257,9 +267,7 @@ class Agent:
             segment = segment[-500:]
         return segment.strip()
 
-    async def _graphrag_enrich(
-        self, messages: list[ChatMessage]
-    ) -> list[ChatMessage]:
+    async def _graphrag_enrich(self, messages: list[ChatMessage]) -> list[ChatMessage]:
         if self._graphrag is None:
             return messages
         user_text = ""
@@ -333,9 +341,7 @@ class Agent:
         text, _, _ = await self._dispatch_tool_result(tc)
         return text
 
-    async def _dispatch_tool_result(
-        self, tc: ToolCall
-    ) -> tuple[str, bool, list[Any] | None]:
+    async def _dispatch_tool_result(self, tc: ToolCall) -> tuple[str, bool, list[Any] | None]:
         try:
             args = json.loads(tc.arguments) if tc.arguments else {}
         except json.JSONDecodeError:

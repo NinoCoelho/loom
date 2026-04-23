@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Discriminator, Tag
 
@@ -77,12 +77,10 @@ def _content_part_discriminator(v: object) -> str:
 
 
 ContentPart = Annotated[
-    Union[
-        Annotated[TextPart, Tag("text")],
-        Annotated[ImagePart, Tag("image")],
-        Annotated[VideoPart, Tag("video")],
-        Annotated[FilePart, Tag("file")],
-    ],
+    Annotated[TextPart, Tag("text")]
+    | Annotated[ImagePart, Tag("image")]
+    | Annotated[VideoPart, Tag("video")]
+    | Annotated[FilePart, Tag("file")],  # noqa: UP007
     Discriminator(_content_part_discriminator),
 ]
 

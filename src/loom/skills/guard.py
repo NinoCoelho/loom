@@ -1,3 +1,11 @@
+"""Skill content safety checker.
+
+:class:`SkillGuard` inspects skill body text against a set of dangerous
+pattern regexes (e.g. exfiltrating secrets via ``curl $API_KEY``). Returns
+a :class:`~loom.skills.types.SkillGuardVerdict` with level ``safe``,
+``caution``, or ``dangerous``.
+"""
+
 from __future__ import annotations
 
 import re

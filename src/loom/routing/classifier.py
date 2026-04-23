@@ -1,3 +1,12 @@
+"""Message classification for dynamic model routing.
+
+:class:`MessageCategory` labels a user message by intent:
+``coding``, ``reasoning``, ``trivial``, or ``balanced``. :func:`classify_message`
+uses lightweight keyword/regex heuristics on the raw text so no LLM call
+is needed. Used by :func:`~loom.routing.router.choose_model` to pick the
+best model per turn.
+"""
+
 from __future__ import annotations
 
 import re

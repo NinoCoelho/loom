@@ -1,3 +1,11 @@
+"""Skill file loader — frontmatter parsing and Skill model construction.
+
+:func:`load_skill` reads a ``*.md`` skill file, parses YAML frontmatter via
+:mod:`frontmatter`, and returns a :class:`~loom.skills.types.Skill` object.
+Validates that required frontmatter keys (``name``, ``description``) are
+present and that the ``name`` matches the filename stem.
+"""
+
 from __future__ import annotations
 
 import json

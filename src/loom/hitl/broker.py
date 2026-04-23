@@ -51,10 +51,12 @@ class HitlBroker:
         *,
         publish_hook: Callable[[str, HitlEvent], None] | None = None,
     ) -> None:
-        """Optional ``publish_hook(session_id, event)`` forwards every
-        published event to an external sink (e.g. a web SSE bus) in
-        addition to the in-process subscribers. Hook exceptions are
-        swallowed so a broken sink can't take the broker down."""
+        """Forward every published event to an external sink.
+
+        The optional *publish_hook* callback (e.g. a web SSE bus) receives
+        every event in addition to in-process subscribers. Hook exceptions
+        are swallowed so a broken sink cannot take the broker down.
+        """
         self._pending: dict[tuple[str, str], asyncio.Future[str]] = {}
         self._subscribers: dict[str, list[asyncio.Queue[HitlEvent]]] = {}
         self._requests: dict[tuple[str, str], HitlRequest] = {}

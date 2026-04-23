@@ -1,3 +1,11 @@
+"""Heartbeat directory scanner and index.
+
+:class:`HeartbeatRegistry` scans a directory tree for ``*.md`` heartbeat
+files, loads each via :func:`~loom.heartbeat.loader.load_heartbeat`, and
+maintains a name-keyed index of :class:`~loom.heartbeat.types.HeartbeatRecord`
+objects.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

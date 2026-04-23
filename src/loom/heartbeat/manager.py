@@ -1,3 +1,12 @@
+"""Heartbeat CRUD manager.
+
+:class:`HeartbeatManager` provides create / edit / patch / delete
+operations on heartbeat files, with atomic writes, backup-and-rollback
+on failure, and optional :class:`~loom.skills.guard.SkillGuard`
+enforcement. Persists heartbeat metadata to :class:`HeartbeatStore`
+and registers each heartbeat with :class:`HeartbeatRegistry`.
+"""
+
 from __future__ import annotations
 
 import shutil

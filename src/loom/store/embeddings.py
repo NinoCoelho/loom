@@ -37,9 +37,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 try:
     import numpy as np
 
-    def _batch_cosine(
-        query: list[float], vectors: list[list[float]]
-    ) -> list[float]:
+    def _batch_cosine(query: list[float], vectors: list[list[float]]) -> list[float]:
         if not vectors:
             return []
         q = np.array(query, dtype=np.float32)
@@ -51,9 +49,7 @@ try:
 
 except ImportError:
 
-    def _batch_cosine(
-        query: list[float], vectors: list[list[float]]
-    ) -> list[float]:
+    def _batch_cosine(query: list[float], vectors: list[list[float]]) -> list[float]:
         return [_cosine_similarity(query, v) for v in vectors]
 
 

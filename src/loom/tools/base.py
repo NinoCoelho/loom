@@ -1,3 +1,11 @@
+"""Tool system primitives — :class:`ToolHandler` and :class:`ToolResult`.
+
+:class:`ToolHandler` is the abstract base for all tool backends. Each
+handler declares its interface via a :class:`~loom.types.ToolSpec` and
+returns a :class:`ToolResult` (text, optional structured content parts,
+and an error flag) from :meth:`invoke`.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

@@ -1,3 +1,11 @@
+"""Heartbeat run-record persistence (SQLite).
+
+:class:`HeartbeatStore` records every heartbeat execution
+(:class:`HeartbeatRunRecord`) — run ID, timestamp, duration, exit status,
+and stdout/stderr — so the agent can inspect past runs and avoid
+re-triggering a heartbeat that is already in progress.
+"""
+
 from __future__ import annotations
 
 import json

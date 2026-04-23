@@ -1,3 +1,17 @@
+"""FastAPI HTTP server for the agent chat API and SSE event stream.
+
+:func:`create_app` returns an ASGI application with routes for:
+
+* ``POST /`` — synchronous chat (returns a :class:`~loom.server.schemas.ChatReply`).
+* ``POST /stream`` — streaming chat (yields SSE events).
+* ``GET /sessions/<id>/events`` — SSE session event stream.
+* ``GET /admin/skills``, ``POST /admin/skills`` — skill CRUD.
+* ``GET /admin/heartbeats``, ``POST /admin/heartbeats`` — heartbeat CRUD.
+
+The app uses in-memory session state (no separate database) and
+delegates to an :class:`~loom.runtime.AgentRuntime` for agent operations.
+"""
+
 from __future__ import annotations
 
 import asyncio

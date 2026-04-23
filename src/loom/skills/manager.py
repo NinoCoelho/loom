@@ -1,3 +1,12 @@
+"""Skill CRUD controller with optional rollback and safety guard.
+
+:class:`SkillManager` orchestrates skill create/edit/patch/delete
+operations, each following the same pattern: read skill, write backup,
+atomically update, reload, and re-register. If the write fails the backup
+is restored. An optional :class:`~loom.skills.guard.SkillGuard` blocks
+dangerous content from being saved.
+"""
+
 from __future__ import annotations
 
 import shutil

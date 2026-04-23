@@ -1,3 +1,12 @@
+"""Data types for the skills subsystem.
+
+* :class:`SkillMetadata` — source path and load timestamp.
+* :class:`Skill` — skill descriptor (name, body, trust level, metadata).
+* :class:`SkillGuardVerdict` — result of inspecting skill content.
+* ``MANAGE_TOOL_SPEC``, ``ACTIVATE_TOOL_SPEC``, ``LIST_TOOL_SPEC`` —
+  tool-call schemas the LLM uses to invoke skills.
+"""
+
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
@@ -59,8 +68,7 @@ MANAGE_TOOL_SPEC = ToolSpec(
             "file_path": {
                 "type": "string",
                 "description": (
-                    "Relative file path within the skill directory "
-                    "(for write_file/remove_file)."
+                    "Relative file path within the skill directory (for write_file/remove_file)."
                 ),
             },
             "content": {

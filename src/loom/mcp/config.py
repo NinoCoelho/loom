@@ -1,3 +1,11 @@
+"""MCP server connection configuration.
+
+:class:`McpServerConfig` describes a single MCP server: its name,
+transport (``stdio`` or ``http``), command or URL, and optional
+environment variables. Passed to :class:`~loom.mcp.client.McpClient`
+to open a connection.
+"""
+
 from __future__ import annotations
 
 from typing import Literal

@@ -1,4 +1,4 @@
-"""ACP tool handler — exposes ``call_agent`` as a Loom tool."""
+"""ACP tool handler — exposes ``call_agent`` as a Loom tool callable."""
 
 from __future__ import annotations
 

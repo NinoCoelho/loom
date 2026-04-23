@@ -129,8 +129,7 @@ class EntityGraph:
                         return row[0]
 
         cur = self._db.execute(
-            "INSERT INTO entities (name, type, canonical, description) "
-            "VALUES (?, ?, ?, '')",
+            "INSERT INTO entities (name, type, canonical, description) VALUES (?, ?, ?, '')",
             (name.strip(), type, canonical),
         )
         self._db.commit()
@@ -143,9 +142,7 @@ class EntityGraph:
         ).fetchone()
         if row is None:
             return None
-        return Entity(
-            id=row[0], name=row[1], type=row[2], canonical=row[3], description=row[4]
-        )
+        return Entity(id=row[0], name=row[1], type=row[2], canonical=row[3], description=row[4])
 
     def find_entity(self, name: str, type: str) -> Entity | None:
         canonical = name.strip().lower()
@@ -156,9 +153,7 @@ class EntityGraph:
         ).fetchone()
         if row is None:
             return None
-        return Entity(
-            id=row[0], name=row[1], type=row[2], canonical=row[3], description=row[4]
-        )
+        return Entity(id=row[0], name=row[1], type=row[2], canonical=row[3], description=row[4])
 
     def add_triple(
         self,
@@ -192,8 +187,7 @@ class EntityGraph:
             (chunk_id,),
         ).fetchall()
         return [
-            Entity(id=r[0], name=r[1], type=r[2], canonical=r[3], description=r[4])
-            for r in rows
+            Entity(id=r[0], name=r[1], type=r[2], canonical=r[3], description=r[4]) for r in rows
         ]
 
     def chunks_for_entity(self, entity_id: int) -> list[str]:
@@ -210,8 +204,7 @@ class EntityGraph:
             next_frontier: set[int] = set()
             for eid in frontier:
                 rows = self._db.execute(
-                    "SELECT head_id, tail_id FROM triples "
-                    "WHERE head_id = ? OR tail_id = ?",
+                    "SELECT head_id, tail_id FROM triples WHERE head_id = ? OR tail_id = ?",
                     (eid, eid),
                 ).fetchall()
                 for head_id, tail_id in rows:
@@ -232,8 +225,7 @@ class EntityGraph:
             list(visited),
         ).fetchall()
         return [
-            Entity(id=r[0], name=r[1], type=r[2], canonical=r[3], description=r[4])
-            for r in rows
+            Entity(id=r[0], name=r[1], type=r[2], canonical=r[3], description=r[4]) for r in rows
         ]
 
     def remove_for_chunks(self, chunk_ids: list[str]) -> None:
@@ -294,8 +286,7 @@ class EntityGraph:
             params + [limit, offset],
         ).fetchall()
         return [
-            Entity(id=r[0], name=r[1], type=r[2], canonical=r[3], description=r[4])
-            for r in rows
+            Entity(id=r[0], name=r[1], type=r[2], canonical=r[3], description=r[4]) for r in rows
         ]
 
     def get_entity_triples(self, entity_id: int) -> list[Triple]:
@@ -306,8 +297,13 @@ class EntityGraph:
         ).fetchall()
         return [
             Triple(
-                id=r[0], head_id=r[1], relation=r[2], tail_id=r[3],
-                chunk_id=r[4], description=r[5], strength=r[6],
+                id=r[0],
+                head_id=r[1],
+                relation=r[2],
+                tail_id=r[3],
+                chunk_id=r[4],
+                description=r[5],
+                strength=r[6],
             )
             for r in rows
         ]
@@ -327,8 +323,13 @@ class EntityGraph:
                 ).fetchall()
                 for r in rows:
                     t = Triple(
-                        id=r[0], head_id=r[1], relation=r[2], tail_id=r[3],
-                        chunk_id=r[4], description=r[5], strength=r[6],
+                        id=r[0],
+                        head_id=r[1],
+                        relation=r[2],
+                        tail_id=r[3],
+                        chunk_id=r[4],
+                        description=r[5],
+                        strength=r[6],
                     )
                     if t not in all_triples:
                         all_triples.append(t)
@@ -349,8 +350,7 @@ class EntityGraph:
             list(visited_ids),
         ).fetchall()
         nodes = [
-            Entity(id=r[0], name=r[1], type=r[2], canonical=r[3], description=r[4])
-            for r in rows
+            Entity(id=r[0], name=r[1], type=r[2], canonical=r[3], description=r[4]) for r in rows
         ]
         return {"nodes": nodes, "edges": all_triples}
 
@@ -401,8 +401,7 @@ class EntityGraph:
             "SELECT id, name, type, canonical, description FROM entities ORDER BY name"
         ).fetchall()
         return [
-            Entity(id=r[0], name=r[1], type=r[2], canonical=r[3], description=r[4])
-            for r in rows
+            Entity(id=r[0], name=r[1], type=r[2], canonical=r[3], description=r[4]) for r in rows
         ]
 
     def list_all_triples(self) -> list[Triple]:
@@ -411,8 +410,13 @@ class EntityGraph:
         ).fetchall()
         return [
             Triple(
-                id=r[0], head_id=r[1], relation=r[2], tail_id=r[3],
-                chunk_id=r[4], description=r[5], strength=r[6],
+                id=r[0],
+                head_id=r[1],
+                relation=r[2],
+                tail_id=r[3],
+                chunk_id=r[4],
+                description=r[5],
+                strength=r[6],
             )
             for r in rows
         ]

@@ -1,3 +1,13 @@
+"""Tool registry — name-to-handler index and dispatcher.
+
+:class:`ToolRegistry` maintains a dictionary of registered
+:class:`~loom.tools.base.ToolHandler` instances keyed by tool name.
+:meth:`dispatch` looks up a handler and calls it; unknown tool names
+return an error :class:`~loom.tools.base.ToolResult` rather than raising.
+:meth:`specs` exposes all registered tools as :class:`~loom.types.ToolSpec`
+objects for LLM tool-use descriptions.
+"""
+
 from __future__ import annotations
 
 from loom.tools.base import ToolHandler, ToolResult

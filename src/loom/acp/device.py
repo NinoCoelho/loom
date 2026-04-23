@@ -91,6 +91,7 @@ def sign_challenge(
         keypair: Loaded device keypair.
         nonce: Challenge nonce (UTF-8 encoded before signing).
         encoding: ``"hex"`` (default) or ``"base64"``.
+
     """
     sig_bytes = keypair.private_key.sign(nonce.encode("utf-8"))
     if encoding == "base64":

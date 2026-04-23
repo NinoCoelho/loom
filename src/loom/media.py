@@ -1,9 +1,14 @@
+"""Media file handling utilities.
+
+Provides functions for inferring media types from file extensions or URLs,
+loading file content (local or remote), and encoding to base64 or data URLs.
+"""
+
 from __future__ import annotations
 
 import base64
 import mimetypes
 from pathlib import Path
-
 
 _EXT_MEDIA_MAP: dict[str, str] = {
     ".jpg": "image/jpeg",

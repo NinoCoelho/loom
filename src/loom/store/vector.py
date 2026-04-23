@@ -54,9 +54,7 @@ class VectorStore:
                 updated_at REAL
             )
         """)
-        self._db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_vectors_source ON vectors(source)"
-        )
+        self._db.execute("CREATE INDEX IF NOT EXISTS idx_vectors_source ON vectors(source)")
         self._db.commit()
 
     def close(self) -> None:
@@ -99,9 +97,7 @@ class VectorStore:
         self._db.commit()
 
     def remove_for_source(self, source: str) -> int:
-        cur = self._db.execute(
-            "DELETE FROM vectors WHERE source = ?", (source,)
-        )
+        cur = self._db.execute("DELETE FROM vectors WHERE source = ?", (source,))
         self._db.commit()
         return cur.rowcount
 
@@ -168,7 +164,5 @@ class VectorStore:
         return row[0] if row else 0
 
     def sources(self) -> list[str]:
-        rows = self._db.execute(
-            "SELECT DISTINCT source FROM vectors ORDER BY source"
-        ).fetchall()
+        rows = self._db.execute("SELECT DISTINCT source FROM vectors ORDER BY source").fetchall()
         return [r[0] for r in rows]

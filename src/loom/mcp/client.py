@@ -53,9 +53,7 @@ class McpClient:
         cfg = self._config
         if cfg.transport == "stdio":
             if not cfg.command:
-                raise ValueError(
-                    f"MCP server '{cfg.name}' requires 'command' for stdio transport"
-                )
+                raise ValueError(f"MCP server '{cfg.name}' requires 'command' for stdio transport")
             params = StdioServerParameters(
                 command=cfg.command[0],
                 args=cfg.command[1:],
@@ -64,9 +62,7 @@ class McpClient:
             self._transport_cm = stdio_client(params)
         else:
             if not cfg.url:
-                raise ValueError(
-                    f"MCP server '{cfg.name}' requires 'url' for sse transport"
-                )
+                raise ValueError(f"MCP server '{cfg.name}' requires 'url' for sse transport")
             self._transport_cm = sse_client(cfg.url, headers=cfg.headers or None)
 
         read, write = await self._transport_cm.__aenter__()
@@ -85,9 +81,7 @@ class McpClient:
 
     def _assert_open(self) -> None:
         if self._session is None:
-            raise RuntimeError(
-                "McpClient is not open — use it as an async context manager"
-            )
+            raise RuntimeError("McpClient is not open — use it as an async context manager")
 
     async def list_tools(self) -> list[McpToolHandler]:
         """Discover tools from the server and return them as ToolHandlers."""

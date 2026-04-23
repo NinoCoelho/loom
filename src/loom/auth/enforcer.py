@@ -52,6 +52,7 @@ class GateDecision:
         prompt_resolution: The human's answer string when NOTIFY_BEFORE was
             triggered and the request was approved.  ``None`` otherwise.
         reason: Human-readable denial reason when ``allowed=False``.
+
     """
 
     allowed: bool
@@ -120,9 +121,7 @@ class PolicyEnforcer:
         policy = await self._policy_store.get(scope)
 
         if policy is None:
-            logger.info(
-                "No policy configured for scope %r — defaulting to AUTONOMOUS", scope
-            )
+            logger.info("No policy configured for scope %r — defaulting to AUTONOMOUS", scope)
             return GateDecision(allowed=True, policy=None)
 
         mode = policy.mode
@@ -135,10 +134,7 @@ class PolicyEnforcer:
         if mode == PolicyMode.NOTIFY_BEFORE:
             if self._hitl is None:
                 raise CredentialDenied(scope, "no HITL broker configured")
-            prompt = (
-                policy.prompt_message
-                or f"Allow agent to use credential {scope!r}?"
-            )
+            prompt = policy.prompt_message or f"Allow agent to use credential {scope!r}?"
             answer = await self._hitl.ask(
                 session_id,
                 prompt,
@@ -165,9 +161,7 @@ class PolicyEnforcer:
                     },
                 )
                 # Schedule as a non-blocking background emit
-                asyncio.get_event_loop().call_soon(
-                    self._hitl.publish, session_id, event
-                )
+                asyncio.get_event_loop().call_soon(self._hitl.publish, session_id, event)
             return GateDecision(allowed=True, policy=policy)
 
         # ── TIME_BOXED ───────────────────────────────────────────────

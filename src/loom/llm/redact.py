@@ -1,3 +1,11 @@
+"""Log redaction — replace secrets with safe placeholder tokens.
+
+:func:`redact_sensitive_text` applies a cascade of regex patterns to scrub API keys,
+tokens, connection strings, private keys, and other sensitive values from text
+before it is written to logs. Already-redacted spans are preserved so
+re-entrant calls do not double-redact.
+"""
+
 from __future__ import annotations
 
 import re

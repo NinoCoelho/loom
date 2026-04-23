@@ -1,3 +1,11 @@
+"""Skill directory scanner and name-to-Skill index.
+
+:class:`SkillRegistry` scans a directory tree (and optional additional
+directories) for ``*.md`` skill files and maintains a name-keyed dictionary.
+:meth:`scan` re-scans; :meth:`descriptions` returns a list of
+``(name, description)`` pairs for system-prompt injection.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

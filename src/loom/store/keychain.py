@@ -53,7 +53,7 @@ class KeychainStore:
         except ImportError as exc:
             raise ImportError(
                 "keyring is required for KeychainStore. "
-                "Install it with: pip install \"loom[keychain]\""
+                'Install it with: pip install "loom[keychain]"'
             ) from exc
         self._service = service
         self._meta_service = f"{service}:metadata"
@@ -64,6 +64,7 @@ class KeychainStore:
 
     def _kr(self):  # type: ignore[return]
         import keyring
+
         return keyring
 
     def _get_raw(self, scope: str) -> dict | None:
@@ -121,17 +122,13 @@ class KeychainStore:
         scopes = self._list_scopes()
         if scope not in scopes:
             scopes.append(scope)
-            self._kr().set_password(
-                self._meta_service, "__index__", json.dumps(scopes)
-            )
+            self._kr().set_password(self._meta_service, "__index__", json.dumps(scopes))
 
     def _remove_from_index(self, scope: str) -> None:
         scopes = self._list_scopes()
         if scope in scopes:
             scopes.remove(scope)
-            self._kr().set_password(
-                self._meta_service, "__index__", json.dumps(scopes)
-            )
+            self._kr().set_password(self._meta_service, "__index__", json.dumps(scopes))
 
     # ------------------------------------------------------------------
     # Public API (mirrors SecretStore)
@@ -159,9 +156,7 @@ class KeychainStore:
         # Preserve creation time and bump version if updating an existing entry.
         existing_meta = self._get_meta_raw(scope)
         if existing_meta is not None:
-            meta_entry["created_at"] = existing_meta.get(
-                "created_at", meta_entry["created_at"]
-            )
+            meta_entry["created_at"] = existing_meta.get("created_at", meta_entry["created_at"])
             meta_entry["version"] = existing_meta.get("version", 0) + 1
 
         self._set_meta_raw(scope, meta_entry)

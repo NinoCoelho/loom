@@ -66,6 +66,7 @@ class Applier(Protocol):
 
         Returns:
             Transport-ready output (e.g. ``dict[str, str]`` headers or ``str``).
+
         """
         ...
 
@@ -228,7 +229,6 @@ class ApiKeyStringApplier:
 # ---------------------------------------------------------------------------
 
 
-
 class SshConnectArgs(dict):
     """Normalized connection args fed to ``asyncssh.connect()``.
 
@@ -351,7 +351,7 @@ class SigV4Applier:
         except ImportError as exc:
             raise ImportError(
                 "botocore is required for SigV4 request signing. "
-                "Install it with: pip install \"loom[aws]\""
+                'Install it with: pip install "loom[aws]"'
             ) from exc
 
         method: str = context.get("method", "GET").upper()
@@ -361,11 +361,7 @@ class SigV4Applier:
             body = body.encode("utf-8")
 
         service: str = context.get("service", "execute-api")
-        region: str = (
-            context.get("region")
-            or secret.get("region")
-            or "us-east-1"
-        )
+        region: str = context.get("region") or secret.get("region") or "us-east-1"
 
         # Build botocore credentials object — never exposes secret_access_key in headers
         creds = botocore.credentials.Credentials(
@@ -439,8 +435,7 @@ class JwtBearerApplier:
             import jwt as pyjwt
         except ImportError as exc:
             raise ImportError(
-                "PyJWT is required for JwtBearerApplier. "
-                "Install it with: pip install \"loom[jwt]\""
+                'PyJWT is required for JwtBearerApplier. Install it with: pip install "loom[jwt]"'
             ) from exc
 
         key = self._cache_key(context)

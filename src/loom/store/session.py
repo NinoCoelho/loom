@@ -1,3 +1,11 @@
+"""SQLite-backed chat session persistence.
+
+:class:`SessionStore` persists a per-agent conversation history: the ordered
+message list (serialised as JSON or plain text), session title, pending question
+capture, per-session token usage counters, and arbitrary context metadata.
+Supports FTS5 full-text search over message content.
+"""
+
 from __future__ import annotations
 
 import json
@@ -5,7 +13,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from loom.types import ChatMessage, ContentPart, Role, TextPart
+from loom.types import ChatMessage, ContentPart, Role
 
 
 class SessionStore:
@@ -45,9 +53,7 @@ class SessionStore:
         """)
         self._db.commit()
         # Idempotent migrations: add columns if missing (for pre-existing DBs)
-        cols = {
-            row[1] for row in self._db.execute("PRAGMA table_info(sessions)").fetchall()
-        }
+        cols = {row[1] for row in self._db.execute("PRAGMA table_info(sessions)").fetchall()}
         migrations = {
             "context": "TEXT",
             "title": "TEXT",
@@ -59,9 +65,7 @@ class SessionStore:
         }
         for col_name, col_def in migrations.items():
             if col_name not in cols:
-                self._db.execute(
-                    f"ALTER TABLE sessions ADD COLUMN {col_name} {col_def}"
-                )
+                self._db.execute(f"ALTER TABLE sessions ADD COLUMN {col_name} {col_def}")
         self._db.commit()
 
     def close(self) -> None:
@@ -115,7 +119,12 @@ class SessionStore:
         if raw.startswith("["):
             try:
                 parsed = json.loads(raw)
-                if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict) and "type" in parsed[0]:
+                if (
+                    isinstance(parsed, list)
+                    and parsed
+                    and isinstance(parsed[0], dict)
+                    and "type" in parsed[0]
+                ):
                     from pydantic import TypeAdapter
 
                     adapter = TypeAdapter(list[ContentPart])

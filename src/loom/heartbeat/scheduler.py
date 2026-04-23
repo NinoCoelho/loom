@@ -1,3 +1,12 @@
+"""Heartbeat scheduler — asyncio cron loop driving registered heartbeats.
+
+:class:`HeartbeatScheduler` owns the async event loop, waking at the
+next-scheduled heartbeat time, firing the :attr:`HeartbeatDriver.run`
+function, recording a :class:`HeartbeatRunRecord`, and rescheduling.
+Overlapping runs are suppressed (skip-if-already-running) to prevent
+duplicate executions when a previous tick took longer than expected.
+"""
+
 from __future__ import annotations
 
 import asyncio

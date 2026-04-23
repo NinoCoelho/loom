@@ -284,15 +284,12 @@ class MemoryStore:
         return len(rows) > 0
 
     def _migrate_content_to_fts5(self) -> None:
-        rows = self._db.execute(
-            "SELECT key, category, content FROM memory_content"
-        ).fetchall()
+        rows = self._db.execute("SELECT key, category, content FROM memory_content").fetchall()
         if not rows:
             return
         for key, category, content in rows:
             self._db.execute(
-                "INSERT OR REPLACE INTO memory_fts (key, category, content) "
-                "VALUES (?, ?, ?)",
+                "INSERT OR REPLACE INTO memory_fts (key, category, content) VALUES (?, ?, ?)",
                 (key, category, content[:5000] if content else ""),
             )
         self._db.commit()
@@ -453,8 +450,12 @@ class MemoryStore:
             )
         else:
             self._write_file(
-                key, content, category, tags or [],
-                pinned=pinned, importance=importance,
+                key,
+                content,
+                category,
+                tags or [],
+                pinned=pinned,
+                importance=importance,
             )
             source_path = key
         if self._embedder is not None:
@@ -518,10 +519,7 @@ class MemoryStore:
                 "FROM memory_fts WHERE memory_fts MATCH ? ORDER BY rank LIMIT ?",
                 (query, limit),
             ).fetchall()
-            return [
-                SearchHit(key=r[0], category=r[1], snippet=r[2], score=r[3])
-                for r in rows
-            ]
+            return [SearchHit(key=r[0], category=r[1], snippet=r[2], score=r[3]) for r in rows]
         rows = self._db.execute(
             "SELECT key, category, content FROM memory_content WHERE content LIKE ? LIMIT ?",
             (f"%{query}%", limit),
@@ -626,10 +624,13 @@ class MemoryStore:
             except FileNotFoundError:
                 return
             count = int(fm.get("access_count", 0))
-            self._update_vault_frontmatter(key, {
-                "access_count": count + 1,
-                "last_recalled_at": now,
-            })
+            self._update_vault_frontmatter(
+                key,
+                {
+                    "access_count": count + 1,
+                    "last_recalled_at": now,
+                },
+            )
             self._sync_meta(
                 key,
                 access_count=count + 1,
@@ -865,9 +866,7 @@ class MemoryStore:
                 results.append(str(rel))
         return results
 
-    _VAULT_KEY_RE = re.compile(
-        r"^[^/]+/(?:\d{4}/\d{2}/\d{2}/)?(.+)\.md$"
-    )
+    _VAULT_KEY_RE = re.compile(r"^[^/]+/(?:\d{4}/\d{2}/\d{2}/)?(.+)\.md$")
 
     def _key_from_vault_path(self, path: str) -> str:
         m = self._VAULT_KEY_RE.match(path)
@@ -878,7 +877,7 @@ class MemoryStore:
             key = key[:-3]
         prefix = f"{self._vault_prefix}/"
         if key.startswith(prefix):
-            key = key[len(prefix):]
+            key = key[len(prefix) :]
         parts = key.split("/")
         if len(parts) >= 4 and parts[0].isdigit() and parts[1].isdigit() and parts[2].isdigit():
             key = "/".join(parts[3:])
@@ -887,9 +886,7 @@ class MemoryStore:
     def _sync_meta(self, key: str, **updates: Any) -> None:
         sets = ", ".join(f"{k} = ?" for k in updates)
         vals = list(updates.values()) + [key]
-        self._db.execute(
-            f"UPDATE memory_meta SET {sets} WHERE key = ?", vals
-        )
+        self._db.execute(f"UPDATE memory_meta SET {sets} WHERE key = ?", vals)
         self._db.commit()
 
     async def _write_via_vault(
@@ -942,9 +939,13 @@ class MemoryStore:
             "last_recalled_at=excluded.last_recalled_at, "
             "vault_path=excluded.vault_path",
             (
-                key, category, json.dumps(tags),
-                metadata["created"], metadata["updated"],
-                int(bool(pinned)), metadata["importance"],
+                key,
+                category,
+                json.dumps(tags),
+                metadata["created"],
+                metadata["updated"],
+                int(bool(pinned)),
+                metadata["importance"],
                 metadata.get("access_count", 0),
                 metadata.get("last_recalled_at"),
                 vpath,
@@ -970,7 +971,7 @@ class MemoryStore:
                     fm = yaml.safe_load(raw[3:end]) or {}
                 except Exception:
                     pass
-                body = raw[end + 3:].strip()
+                body = raw[end + 3 :].strip()
         return MemoryEntry(
             key=key,
             category=fm.get("category", "notes"),
@@ -1002,12 +1003,14 @@ class MemoryStore:
         hits: list[SearchHit] = []
         for r in results:
             key = self._key_from_vault_path(r.get("path", ""))
-            hits.append(SearchHit(
-                key=key,
-                category="notes",
-                snippet=r.get("snippet", ""),
-                score=r.get("score", 0.0),
-            ))
+            hits.append(
+                SearchHit(
+                    key=key,
+                    category="notes",
+                    snippet=r.get("snippet", ""),
+                    score=r.get("score", 0.0),
+                )
+            )
         return hits
 
     async def _recall_via_vault(
@@ -1032,21 +1035,21 @@ class MemoryStore:
             snippet = r.get("snippet", "")
             bm25_norm = (raw_s - worst) / span
             bm25_norm = 1.0 - bm25_norm
-            hits.append(RecallHit(
-                key=key,
-                category="notes",
-                preview=snippet[:300],
-                score=bm25_norm,
-                components={"bm25": bm25_norm},
-            ))
+            hits.append(
+                RecallHit(
+                    key=key,
+                    category="notes",
+                    preview=snippet[:300],
+                    score=bm25_norm,
+                    components={"bm25": bm25_norm},
+                )
+            )
         if touch:
             for h in hits:
                 self.touch(h.key)
         return hits
 
-    async def _list_via_vault(
-        self, category: str | None, limit: int
-    ) -> list[MemoryEntry]:
+    async def _list_via_vault(self, category: str | None, limit: int) -> list[MemoryEntry]:
         paths = await self._vault.list(prefix=self._vault_prefix)
         entries: list[MemoryEntry] = []
         for p in paths[:limit]:
@@ -1079,7 +1082,7 @@ class MemoryStore:
                 if raw.startswith("---"):
                     end = raw.find("---", 3)
                     if end != -1:
-                        body = raw[end + 3:].strip()
+                        body = raw[end + 3 :].strip()
                     else:
                         body = raw
                 else:
@@ -1106,7 +1109,7 @@ class MemoryStore:
         self._db.execute("DELETE FROM memory_meta")
         self._db.commit()
         if self._vault is not None:
-            import asyncio
+
             base = self._vault.root / self._vault_prefix
             if not base.exists():
                 return
@@ -1125,7 +1128,7 @@ class MemoryStore:
                                 fm = yaml.safe_load(raw[3:end]) or {}
                             except Exception:
                                 pass
-                            body = raw[end + 3:].strip()
+                            body = raw[end + 3 :].strip()
                     if self._has_fts5:
                         self._db.execute(
                             "INSERT INTO memory_fts (key, category, content) VALUES (?, ?, ?)",
@@ -1138,9 +1141,11 @@ class MemoryStore:
                         "access_count, last_recalled_at, vault_path) "
                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (
-                            key, fm.get("category", "notes"),
+                            key,
+                            fm.get("category", "notes"),
                             json.dumps(fm.get("tags", [])),
-                            fm.get("created"), fm.get("updated"),
+                            fm.get("created"),
+                            fm.get("updated"),
                             int(bool(fm.get("pinned", False))),
                             int(fm.get("importance", 1)),
                             int(fm.get("access_count", 0)),

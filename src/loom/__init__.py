@@ -1,3 +1,24 @@
+"""Loom — an AI agent framework for building, running, and composing agents.
+
+Top-level exports are grouped by subsystem:
+
+* **Agent core** — :class:`~loom.loop.Agent`, :class:`~loom.loop.AgentConfig`,
+  :class:`~loom.loop.AgentTurn`, :class:`~loom.runtime.AgentRuntime`
+* **LLM** — :class:`~loom.llm.base.LLMProvider`, :class:`~loom.llm.registry.ProviderRegistry`
+* **Types** — :class:`~loom.types.ChatMessage`, :class:`~loom.types.StreamEvent`,
+  :class:`~loom.types.ToolSpec`, etc.
+* **Store** — :class:`~loom.store.memory.MemoryStore`, :class:`~loom.store.session.SessionStore`,
+  :class:`~loom.store.vault.VaultProvider`, :class:`~loom.store.graphrag.GraphRAGEngine`
+* **Tools** — :class:`~loom.tools.base.ToolHandler`, :class:`~loom.tools.registry.ToolRegistry`
+* **Skills** — :class:`~loom.skills.types.Skill`, :class:`~loom.skills.registry.SkillRegistry`
+* **Auth** — credential appliers, resolvers, and policies (:mod:`loom.auth`)
+* **Heartbeat** — :class:`~loom.heartbeat.types.HeartbeatDriver`, schedulers, and managers
+* **HITL** — :class:`~loom.hitl.broker.HitlBroker` for web/SSE human-in-the-loop
+* **MCP / ACP** — optional extras: Model Context Protocol and multi-agent WebSocket transport
+
+See :doc:`/index` for a quick-start guide.
+"""
+
 from loom.acp import AcpCallTool, AcpConfig
 from loom.auth import (
     ApiKeyHeaderApplier,

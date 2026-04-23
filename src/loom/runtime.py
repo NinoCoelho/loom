@@ -1,3 +1,11 @@
+"""Agent runtime — assembles all components into a runnable agent.
+
+:class:`AgentRuntime` owns the loom home directory and provides a
+high-level API to create, retrieve, and destroy agents, wiring together
+the LLM provider registry, skill registry, memory store, session store,
+and tool registry for each agent.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

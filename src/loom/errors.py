@@ -746,7 +746,7 @@ def _classify_402(
     status: int,
     message: str,
 ) -> ClassifiedError:
-    """Used from classify_http — builds directly."""
+    """Classify a 402 response body, distinguishing billing from rate-limit signals."""
     has_usage_limit = any(p in error_msg for p in _USAGE_LIMIT_PATTERNS)
     has_transient_signal = any(p in error_msg for p in _USAGE_LIMIT_TRANSIENT_SIGNALS)
 

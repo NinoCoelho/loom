@@ -1,3 +1,11 @@
+"""System-prompt construction helpers.
+
+Provides :class:`PromptBuilder` for assembling structured prompt sections
+with priority ordering, and a set of loader functions that pull content
+from :class:`~loom.home.AgentHome`, memory stores, skill registries, and
+other sources to build the complete system preamble fed to the LLM.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

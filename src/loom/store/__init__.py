@@ -1,3 +1,25 @@
+"""Storage layer — secrets, memory, graph, vector, session, and vault.
+
+Provides pluggable backends for the core storage primitives used by
+the agent runtime:
+
+* **Secrets** — typed secrets (:class:`Secret`) resolved by an
+  :class:`Applier` and persisted via :class:`SecretsStore` or
+  :class:`SecretStore` (keychain-backed).
+* **Memory** — a dual-layer store (:class:`MemoryStore`) with full-text
+  search (FTS5) and salience-weighted recall.
+* **Graph** — entity knowledge graph (:class:`EntityGraph`) backed by
+  SQLite, with optional GraphRAG enrichment (:class:`GraphRAGEngine`).
+* **Vector** — nearest-neighbour retrieval (:class:`VectorStore`).
+* **Session** — SQLite-backed session history (:class:`SessionStore`).
+* **Vault** — typed file vault (:class:`VaultProvider`) for binary or
+  structured file storage.
+
+Embedding providers (:class:`OpenAIEmbeddingProvider`,
+:class:`OllamaEmbeddingProvider`) are also re-exported for use by
+the memory and vector stores.
+"""
+
 from loom.store.atomic import atomic_write as atomic_write
 from loom.store.embeddings import (
     OllamaEmbeddingProvider as OllamaEmbeddingProvider,

@@ -1,3 +1,14 @@
+"""Model routing — classify messages and choose the best model.
+
+:class:`MessageCategory` classifies a chat message by intent
+(e.g. ``general``, ``code``, ``creative``). :func:`choose_model`
+maps a category to a :class:`ModelStrengths` profile and returns the
+best-fit model ID for the current provider.
+
+Used by :attr:`AgentConfig.choose_model` to dynamically select models
+per turn rather than locking to a single default.
+"""
+
 from loom.routing.classifier import (
     MessageCategory as MessageCategory,
 )

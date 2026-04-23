@@ -1,3 +1,11 @@
+"""Permission model for agent capabilities.
+
+:class:`AgentPermissions` is a flat Pydantic model describing which
+capabilities an agent is granted: memory writes, file edits, HTTP access,
+delegate calls, etc. Used during runtime construction and by skill
+handlers to gate operations.
+"""
+
 from __future__ import annotations
 
 from pydantic import BaseModel

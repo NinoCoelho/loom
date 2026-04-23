@@ -1,3 +1,12 @@
+"""Request/response schemas for the HTTP server API.
+
+* :class:`ChatRequest` — JSON body for the chat endpoint.
+* :class:`ChatReply` — JSON response for synchronous chat.
+* :class:`RespondPayload` — wrapper for streaming SSE ``data:`` lines.
+* :class:`SessionInfo` — active session metadata.
+* :class:`SkillInfo` — skill summary for the admin API.
+"""
+
 from __future__ import annotations
 
 from pydantic import BaseModel

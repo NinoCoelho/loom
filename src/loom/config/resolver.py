@@ -1,3 +1,13 @@
+"""Config resolution — merging file, environment, and CLI override sources.
+
+Priority (highest to lowest): CLI overrides → environment variables →
+config file. :func:`resolve_config` composes the full resolution chain;
+:func:`resolve_from_env` reads from environment variables only.
+
+Supported env vars: ``LOOM_LLM_BASE_URL``, ``LOOM_LLM_API_KEY``,
+``LOOM_LLM_MODEL``.
+"""
+
 from __future__ import annotations
 
 import os

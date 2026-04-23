@@ -1,3 +1,11 @@
+"""MCP tool handler — wraps a single MCP tool as a Loom ToolHandler.
+
+:class:`McpToolHandler` adapts one MCP tool definition to the
+:class:`~loom.tools.base.ToolHandler` interface. The MCP tool's JSON-RPC
+request/response schema is translated to a
+:class:`~loom.types.ToolSpec` for LLM consumption.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable

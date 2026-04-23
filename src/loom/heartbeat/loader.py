@@ -1,3 +1,12 @@
+"""Heartbeat file loader — frontmatter parsing and driver construction.
+
+:func:`load_heartbeat` reads a ``*.md`` heartbeat file, parses YAML
+frontmatter via :mod:`frontmatter`, and dynamically imports the Python
+module referenced in the ``run`` key. Returns a
+:class:`~loom.heartbeat.types.HeartbeatRecord` with a callable
+:attr:`~loom.heartbeat.types.HeartbeatRecord.driver`.
+"""
+
 from __future__ import annotations
 
 import importlib.util
