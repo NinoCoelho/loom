@@ -24,244 +24,29 @@ Usage::
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
-import re
 import sqlite3
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from loom.store.embeddings import _cosine_similarity
 from loom.store.db import SqliteResource
 from loom.store.graph import EntityGraph
+from loom.store.graphrag._types import (
+    Chunk,
+    EnrichedRetrieval,
+    GraphRAGConfig,
+    HopRecord,
+    RetrievalResult,
+    RetrievalTrace,
+)
+from loom.store.graphrag._chunking import chunk_markdown
+from loom.store.graphrag._extraction import _EXTRACTION_PROMPT, _GLEAN_PROMPT, parse_extraction_response
 from loom.store.vector import VectorStore
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_ENTITY_TYPES = [
-    "person",
-    "project",
-    "concept",
-    "technology",
-    "decision",
-    "resource",
-]
-
-_DEFAULT_CORE_RELATIONS = [
-    "uses",
-    "depends_on",
-    "part_of",
-    "created_by",
-    "related_to",
-]
-
-_EXTRACTION_PROMPT = """\
-Extract entities and relationships from the following text.
-
-Entity types to look for: {entity_types}
-
-For each entity provide:
-- name: the canonical name, capitalized
-- type: one of the entity types above
-- description: brief description based on context
-
-For relationships use one of these relation types when they fit: {core_relations}
-Otherwise use the relation type that best describes the relationship and set "custom" to true.
-
-For each relationship provide:
-- head: name of the source entity
-- relation: the relation type
-- tail: name of the target entity
-- description: natural language description of the relationship
-- strength: integer 1-10 indicating relationship strength
-
-Text:
-{text}
-
-Respond with ONLY valid JSON in this exact format (no markdown fences):
-{{"entities": [{{"name": "...", "type": "...", "description": "..."}}],
- "relations": [{{"head": "...", "relation": "...", "tail": "..."
-                 , "description": "...", "strength": 5, "custom": false}}]}}\
-"""
-
-_GLEAN_PROMPT = """\
-Many entities and relationships were missed in the previous extraction.
-Review the text again and extract any additional entities and relationships
-that were missed. Use the same JSON format.
-
-Text:
-{text}
-
-Respond with ONLY valid JSON:\
-"""
-
-
-@dataclass
-class OntologyConfig:
-    entity_types: list[str] = field(default_factory=lambda: list(_DEFAULT_ENTITY_TYPES))
-    core_relations: list[str] = field(default_factory=lambda: list(_DEFAULT_CORE_RELATIONS))
-    allow_custom_relations: bool = True
-    aliases: dict[str, list[str]] = field(default_factory=dict)
-
-
-@dataclass
-class EmbeddingConfig:
-    provider: str = "ollama"
-    model: str = "nomic-embed-text"
-    base_url: str = "http://localhost:11434"
-    key_env: str = ""
-    dimensions: int = 768
-
-
-@dataclass
-class ExtractionConfig:
-    model: str | None = None
-    max_gleanings: int = 1
-
-
-@dataclass
-class GraphRAGConfig:
-    enabled: bool = False
-    embeddings: EmbeddingConfig = field(default_factory=EmbeddingConfig)
-    extraction: ExtractionConfig = field(default_factory=ExtractionConfig)
-    ontology: OntologyConfig = field(default_factory=OntologyConfig)
-    max_hops: int = 2
-    context_budget: int = 3000
-    top_k: int = 10
-    chunk_size: int = 1000
-    chunk_overlap: int = 100
-
-
-@dataclass
-class Chunk:
-    id: str
-    source_path: str
-    heading: str
-    content: str
-    char_offset: int
-
-
-@dataclass
-class RetrievalResult:
-    chunk_id: str
-    source_path: str
-    heading: str
-    content: str
-    score: float
-    source: str
-    related_entities: list[str] = field(default_factory=list)
-
-
-@dataclass
-class HopRecord:
-    from_entity: str
-    to_entity: str
-    relation: str
-    hop_depth: int
-
-
-@dataclass
-class RetrievalTrace:
-    seed_entities: list[str] = field(default_factory=list)
-    hops: list[HopRecord] = field(default_factory=list)
-    expanded_entity_ids: list[int] = field(default_factory=list)
-
-
-@dataclass
-class EnrichedRetrieval:
-    results: list[RetrievalResult] = field(default_factory=list)
-    trace: RetrievalTrace = field(default_factory=RetrievalTrace)
-    subgraph_nodes: list[dict] = field(default_factory=list)
-    subgraph_edges: list[dict] = field(default_factory=list)
-
-
-def _make_chunk_id(source_path: str, offset: int) -> str:
-    raw = f"{source_path}:{offset}"
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
-
-
-def chunk_markdown(
-    text: str,
-    source_path: str,
-    *,
-    max_size: int = 1000,
-    overlap: int = 100,
-) -> list[Chunk]:
-    if not text.strip():
-        return []
-    heading_re = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
-    splits: list[tuple[str, int]] = []
-    last = 0
-    for m in heading_re.finditer(text):
-        if m.start() > last:
-            splits.append((text[last : m.start()], last))
-        last = m.start()
-    if last < len(text):
-        splits.append((text[last:], last))
-
-    if not splits:
-        splits = [(text, 0)]
-
-    merged: list[tuple[str, int]] = []
-    for content, offset in splits:
-        starts_with_heading = bool(re.match(r"^#{1,6}\s+", content))
-        if merged and len(content) < 100 and not starts_with_heading:
-            prev_content, prev_offset = merged[-1]
-            merged[-1] = (prev_content + "\n" + content, prev_offset)
-        elif len(content) > max_size:
-            paragraphs = re.split(r"\n\n+", content)
-            buf = ""
-            buf_offset = offset
-            for para in paragraphs:
-                if buf and len(buf) + len(para) + 2 > max_size:
-                    merged.append((buf, buf_offset))
-                    buf_offset = max(offset, buf_offset + len(buf) - overlap)
-                    buf = para
-                else:
-                    buf = buf + "\n\n" + para if buf else para
-            if buf:
-                merged.append((buf, buf_offset))
-        else:
-            merged.append((content, offset))
-
-    chunks: list[Chunk] = []
-    for content, offset in merged:
-        content = content.strip()
-        if not content:
-            continue
-        heading_match = re.match(r"^#{1,6}\s+(.+)$", content, re.MULTILINE)
-        heading = heading_match.group(1).strip() if heading_match else ""
-        chunks.append(
-            Chunk(
-                id=_make_chunk_id(source_path, offset),
-                source_path=source_path,
-                heading=heading,
-                content=content,
-                char_offset=offset,
-            )
-        )
-    return chunks
-
-
-def _parse_extraction_response(text: str) -> dict[str, Any]:
-    text = text.strip()
-    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
-    if fence_match:
-        text = fence_match.group(1).strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            try:
-                return json.loads(text[start : end + 1])
-            except json.JSONDecodeError:
-                pass
-    return {"entities": [], "relations": []}
 
 
 class GraphRAGEngine(SqliteResource):
@@ -420,7 +205,7 @@ class GraphRAGEngine(SqliteResource):
                 logger.warning("Entity extraction LLM call failed", exc_info=True)
                 continue
 
-            parsed = _parse_extraction_response(resp.message.content or "")
+            parsed = parse_extraction_response(resp.message.content or "")
             self._store_extraction(parsed, chunk.id)
 
             for _ in range(self._config.extraction.max_gleanings):
@@ -434,7 +219,7 @@ class GraphRAGEngine(SqliteResource):
                     glean_resp = await self._llm.chat(glean_messages)
                 except Exception:
                     break
-                glean_parsed = _parse_extraction_response(glean_resp.message.content or "")
+                glean_parsed = parse_extraction_response(glean_resp.message.content or "")
                 self._store_extraction(glean_parsed, chunk.id)
 
     def _store_extraction(self, parsed: dict[str, Any], chunk_id: str) -> None:

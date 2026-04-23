@@ -7,6 +7,7 @@ from typing import Any
 
 from loom.errors import LLMError, LLMTransportError, MalformedOutputError
 from loom.llm.base import LLMProvider
+from loom.llm._convert import convert_tools_anthropic
 from loom.media import encode_to_base64, infer_media_type
 from loom.types import (
     ChatMessage,
@@ -168,14 +169,7 @@ class AnthropicProvider(LLMProvider):
         return anthropic_msgs
 
     def _convert_tools(self, tools: list[ToolSpec]) -> list[dict]:
-        return [
-            {
-                "name": t.name,
-                "description": t.description,
-                "input_schema": t.parameters,
-            }
-            for t in tools
-        ]
+        return convert_tools_anthropic(tools)
 
     def _parse_response(self, response: object) -> ChatResponse:
         content_text: str | None = None

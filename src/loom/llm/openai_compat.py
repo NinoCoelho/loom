@@ -9,6 +9,7 @@ import httpx
 
 from loom.errors import LLMTransportError, MalformedOutputError
 from loom.llm.base import LLMProvider
+from loom.llm._convert import convert_tools_openai
 from loom.media import encode_to_data_url, infer_media_type
 from loom.types import (
     ChatMessage,
@@ -112,17 +113,7 @@ class OpenAICompatibleProvider(LLMProvider):
         return d
 
     def _convert_tools(self, tools: list[ToolSpec]) -> list[dict[str, Any]]:
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                },
-            }
-            for t in tools
-        ]
+        return convert_tools_openai(tools)
 
     def _build_payload(
         self,

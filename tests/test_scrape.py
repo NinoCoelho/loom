@@ -10,8 +10,8 @@ from loom.scrape.scrapling import (
     _html_to_markdown,
     _looks_like_auth_failure,
     _looks_like_block,
-    _truncate,
 )
+from loom.tools.utils import truncate_text as _truncate
 from loom.store.cookies import FilesystemCookieStore
 from loom.tools.scrape import WebScrapeTool
 
@@ -65,12 +65,15 @@ def test_extract_domain():
 
 
 def test_truncate_under_limit():
-    assert _truncate("hello", 100) == "hello"
+    text, truncated = _truncate("hello", 100)
+    assert text == "hello"
+    assert not truncated
 
 
 def test_truncate_over_limit():
     long_str = "x" * 2000
-    result = _truncate(long_str, 100)
+    result, truncated = _truncate(long_str, 100)
+    assert truncated
     assert result.endswith("[truncated]")
     assert len(result.encode("utf-8")) <= 200
 

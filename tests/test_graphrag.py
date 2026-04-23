@@ -10,7 +10,7 @@ from loom.store.graphrag import (
     GraphRAGConfig,
     GraphRAGEngine,
     RetrievalResult,
-    _parse_extraction_response,
+    parse_extraction_response as _parse_extraction_response,
     chunk_markdown,
 )
 

@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 
 from loom.scrape.base import ScrapeProviderError, ScrapeResult
 from loom.store.cookies import CookieStore
+from loom.tools.utils import truncate_text
 
 logger = logging.getLogger(__name__)
 
@@ -60,12 +61,7 @@ def _looks_like_auth_failure(content: str, status_code: int | None) -> bool:
     return False
 
 
-def _truncate(content: str, max_bytes: int) -> str:
-    """Truncate content to a byte limit with a sentinel."""
-    encoded = content.encode("utf-8")
-    if len(encoded) <= max_bytes:
-        return content
-    return encoded[:max_bytes].decode("utf-8", errors="replace") + "\n... [truncated]"
+
 
 
 def _extract_by_selector(html_content: str, css_selector: str | None, xpath: str | None) -> str:
@@ -210,7 +206,7 @@ class ScraplingProvider:
                     result.content = _html_to_markdown(html_content)
                     result.content_type = "markdown"
 
-        result.content = _truncate(result.content, self._max_content_bytes)
+        result.content, _ = truncate_text(result.content, self._max_content_bytes)
 
         return result
 
@@ -298,7 +294,7 @@ class ScraplingProvider:
                 else page.cookies
             )
 
-        content = _truncate(content, self._max_content_bytes)
+        content, _ = truncate_text(content, self._max_content_bytes)
 
         return ScrapeResult(
             url=url,
