@@ -26,7 +26,6 @@ class LoomConfig(BaseModel):
     default_model: str = ""
     max_iterations: int = 32
     system_preamble: str = ""
-    routing_mode: str = "fixed"
     providers: dict[str, ProviderConfig] = {}
     models: list[dict] = []
 

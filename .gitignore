@@ -10,3 +10,4 @@ build/
 *.sqlite3
 .env
 .claude/
+.DS_Store
