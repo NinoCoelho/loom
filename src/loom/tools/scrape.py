@@ -1,3 +1,9 @@
+"""``web_scrape`` tool — web scraping exposed to the LLM.
+
+Wraps a :class:`~loom.scrape.base.ScrapeProvider`. Supports text, markdown,
+and HTML output with optional CSS/XPath extraction.
+"""
+
 from __future__ import annotations
 
 from loom.scrape.base import ScrapeProvider, ScrapeProviderError
@@ -8,11 +14,17 @@ from loom.types import ToolSpec
 
 
 class WebScrapeTool(ToolHandler):
+    """:class:`~loom.tools.base.ToolHandler` wrapping a
+    :class:`~loom.scrape.base.ScrapeProvider` for web scraping."""
+
     def __init__(self, provider: ScrapeProvider) -> None:
+        """Wrap a scrape provider."""
         self._provider = provider
 
     @property
     def tool(self) -> ToolSpec:
+        """Tool spec: ``web_scrape`` with ``url``, ``output_format``,
+        ``css_selector``, and ``xpath`` parameters."""
         return ToolSpec(
             name="web_scrape",
             description=(
@@ -46,6 +58,7 @@ class WebScrapeTool(ToolHandler):
         )
 
     async def invoke(self, args: dict) -> ToolResult:
+        """Scrape the URL and return the extracted content."""
         url = args.get("url", "")
         if not url:
             return ToolResult(text="Error: url is required", is_error=True)
@@ -84,6 +97,8 @@ class WebScrapeTool(ToolHandler):
         timeout: int = 30,
         max_content_bytes: int = 102400,
     ) -> WebScrapeTool:
+        """Factory that creates a
+        :class:`~loom.scrape.scrapling.ScraplingProvider`."""
         provider = ScraplingProvider(
             mode=mode,
             cookie_store=cookie_store,

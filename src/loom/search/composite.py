@@ -1,3 +1,12 @@
+"""Multi-provider search orchestration.
+
+:class:`CompositeSearchProvider` wraps multiple
+:class:`~loom.search.base.SearchProvider` instances and merges their
+results using either a concurrent (fire-all, merge, deduplicate) or
+fallback (try in order) strategy. URL deduplication normalises
+scheme+host+path and de-duplicates across providers.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -11,22 +20,37 @@ logger = logging.getLogger(__name__)
 
 
 class SearchStrategy(StrEnum):
+    """Strategy for combining multiple search providers."""
+
     CONCURRENT = "concurrent"
     FALLBACK = "fallback"
 
 
 def _normalize_url(url: str) -> str:
+    """Strip query params and fragment, lower-case for dedup."""
     parsed = urlparse(url)
     return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/").lower()
 
 
 class CompositeSearchProvider:
+    """Orchestrates multiple search providers with a pluggable strategy."""
+
     def __init__(
         self,
         providers: list,
         *,
         strategy: SearchStrategy = SearchStrategy.CONCURRENT,
     ) -> None:
+        """Accept a list of providers and a strategy (default: CONCURRENT).
+
+        Args:
+            providers: One or more :class:`~loom.search.base.SearchProvider`
+                instances.
+            strategy: :class:`SearchStrategy` for combining results.
+
+        Raises:
+            ValueError: If *providers* is empty.
+        """
         if not providers:
             raise ValueError("At least one SearchProvider is required")
         self._providers = providers
@@ -34,13 +58,28 @@ class CompositeSearchProvider:
 
     @property
     def name(self) -> str:
+        """Provider identifier (``\"composite\"``)."""
         return "composite"
 
     @property
     def strategy(self) -> SearchStrategy:
+        """Active search strategy."""
         return self._strategy
 
     async def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
+        """Dispatch to the configured strategy.
+
+        Args:
+            query: Search query string.
+            max_results: Maximum number of results to return.
+
+        Returns:
+            A deduplicated list of :class:`~loom.search.base.SearchResult`
+            instances.
+
+        Raises:
+            SearchProviderError: If all providers fail.
+        """
         if self._strategy == SearchStrategy.CONCURRENT:
             return await self._search_concurrent(query, max_results)
         return await self._search_fallback(query, max_results)
@@ -48,6 +87,7 @@ class CompositeSearchProvider:
     async def _search_concurrent(
         self, query: str, max_results: int
     ) -> list[SearchResult]:
+        """Fire all providers concurrently, merge and deduplicate results."""
         coros = [p.search(query, max_results) for p in self._providers]
         outcomes = await asyncio.gather(*coros, return_exceptions=True)
 
@@ -77,6 +117,7 @@ class CompositeSearchProvider:
     async def _search_fallback(
         self, query: str, max_results: int
     ) -> list[SearchResult]:
+        """Try providers in order, stopping when enough results are collected."""
         all_results: list[SearchResult] = []
         errors: list[SearchProviderError] = []
 
@@ -116,6 +157,7 @@ class CompositeSearchProvider:
 def _deduplicate(
     results: list[SearchResult], max_results: int
 ) -> list[SearchResult]:
+    """Remove duplicate URLs (normalised) and cap at *max_results*."""
     seen: set[str] = set()
     unique: list[SearchResult] = []
     for r in results:

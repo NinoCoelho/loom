@@ -39,6 +39,16 @@ For Anthropic support:
 pip install "loom[anthropic] @ git+https://github.com/NinoCoelho/loom.git"
 ```
 
+For search support:
+```bash
+pip install "loom[search] @ git+https://github.com/NinoCoelho/loom.git"
+```
+
+For web scraping support:
+```bash
+pip install "loom[scrape] @ git+https://github.com/NinoCoelho/loom.git"
+```
+
 ---
 
 ### Step 1 — Your first agent
@@ -339,6 +349,8 @@ The steps above cover the most common patterns. Loom has more:
 | Recurring tasks — cron/interval-scheduled drivers that detect events and trigger agent runs | `loom.heartbeat` |
 | GraphRAG — knowledge-graph-augmented retrieval with vector search, entity extraction, and context injection | `loom.store.graphrag` (`loom[graphrag]`) |
 | Web search — multi-provider web search (DDGS, Brave, Tavily, Google) with concurrent/fallback strategies | `loom.search`, `loom.tools.search` (`loom[search]`) |
+| Web scrape — Scrapling-based page scraper with cascade fetching (HTTP→dynamic→stealthy), cookie auth, format conversion, CSS/XPath extraction | `loom.scrape`, `loom.tools.scrape` (`loom[scrape]`) |
+| Cookie store — domain-keyed cookie persistence (Netscape format) for scrape auth retry | `loom.store.cookies` |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation and [docs/API.md](docs/API.md) for the complete API reference.
 
@@ -390,7 +402,7 @@ git clone https://github.com/NinoCoelho/loom.git
 cd loom
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev,anthropic,acp,mcp]"
+pip install -e ".[dev,anthropic,acp,mcp,search,scrape]"
 ```
 
 ```bash

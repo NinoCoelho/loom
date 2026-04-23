@@ -1,3 +1,10 @@
+"""Google Custom Search API provider.
+
+Uses :mod:`httpx` for async HTTP. Requires an API key and a custom
+search engine ID (``cx``). Results are capped at 10 per request
+(Google API limit).
+"""
+
 from __future__ import annotations
 
 import httpx
@@ -8,6 +15,11 @@ _GOOGLE_SEARCH_URL = "https://customsearch.googleapis.com/customsearch/v1"
 
 
 class GoogleSearchProvider:
+    """Search provider backed by Google Custom Search.
+
+    Requires an API key and a programmable search engine ID.
+    """
+
     def __init__(
         self,
         api_key: str,
@@ -15,15 +27,35 @@ class GoogleSearchProvider:
         *,
         timeout: float = 15.0,
     ) -> None:
+        """Configure API key, custom search engine ID (cx), and timeout.
+
+        Args:
+            api_key: Google API key.
+            cx: Programmable search engine identifier.
+            timeout: HTTP request timeout in seconds.
+        """
         self._api_key = api_key
         self._cx = cx
         self._timeout = timeout
 
     @property
     def name(self) -> str:
+        """Provider identifier (``\"google\"``)."""
         return "google"
 
     async def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
+        """Query the Google Custom Search API (max 10 results per request).
+
+        Args:
+            query: Search query string.
+            max_results: Maximum number of results to return (capped at 10).
+
+        Returns:
+            A list of :class:`~loom.search.base.SearchResult` instances.
+
+        Raises:
+            SearchProviderError: On HTTP errors or rate-limiting.
+        """
         effective_max = min(max_results, 10)
 
         params = {

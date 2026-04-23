@@ -12,6 +12,8 @@ Built-in tools include:
 * :class:`BrokerAskUserTool` — human-in-the-loop ask (via :mod:`loom.hitl`).
 * :class:`~loom.tools.ssh.SshCallTool` — SSH command execution.
 * :class:`~loom.tools.vault.VaultToolHandler` — vault file operations.
+* :class:`~loom.tools.search.WebSearchTool` — multi-provider web search.
+* :class:`~loom.tools.scrape.WebScrapeTool` — web page scraping with format conversion.
 """
 
 from loom.tools.base import ToolHandler as ToolHandler
@@ -19,11 +21,15 @@ from loom.tools.base import ToolResult as ToolResult
 from loom.tools.delegate import DelegateTool as DelegateTool
 from loom.tools.profile import EditIdentityTool as EditIdentityTool
 from loom.tools.registry import ToolRegistry as ToolRegistry
+from loom.tools.scrape import WebScrapeTool as WebScrapeTool
+from loom.tools.search import WebSearchTool as WebSearchTool
 
 __all__ = [
-    "ToolHandler",
-    "ToolResult",
     "DelegateTool",
     "EditIdentityTool",
+    "ToolHandler",
     "ToolRegistry",
+    "ToolResult",
+    "WebScrapeTool",
+    "WebSearchTool",
 ]

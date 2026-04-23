@@ -23,6 +23,8 @@ loom/
     llm/             -- LLM provider layer
     tools/           -- Tool handler abstractions
     skills/          -- Skill system
+    search/          -- Web search providers (DDGS, Brave, Tavily, Google, composite)
+    scrape/          -- Web scrape providers (Scrapling cascade)
     store/           -- Persistence (sessions, vault, secrets, memory)
     server/          -- FastAPI server factory
     routing/         -- Model routing and classification

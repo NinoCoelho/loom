@@ -1,3 +1,9 @@
+"""Brave Search API provider.
+
+Uses :mod:`httpx` for async HTTP. Requires an API key
+(``X-Subscription-Token`` header).
+"""
+
 from __future__ import annotations
 
 import httpx
@@ -8,15 +14,39 @@ _BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 
 
 class BraveSearchProvider:
+    """Search provider backed by the Brave Search API.
+
+    Requires an API subscription key.
+    """
+
     def __init__(self, api_key: str, *, timeout: float = 15.0) -> None:
+        """Configure API key and request timeout.
+
+        Args:
+            api_key: Brave Search API subscription token.
+            timeout: HTTP request timeout in seconds.
+        """
         self._api_key = api_key
         self._timeout = timeout
 
     @property
     def name(self) -> str:
+        """Provider identifier (``\"brave\"``)."""
         return "brave"
 
     async def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
+        """Query the Brave Web Search API and return results.
+
+        Args:
+            query: Search query string.
+            max_results: Maximum number of results to return.
+
+        Returns:
+            A list of :class:`~loom.search.base.SearchResult` instances.
+
+        Raises:
+            SearchProviderError: On HTTP errors or rate-limiting.
+        """
         headers = {
             "Accept": "application/json",
             "Accept-Encoding": "gzip",

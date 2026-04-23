@@ -44,6 +44,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - `HopRecord`, `RetrievalTrace`, `EnrichedRetrieval` dataclasses exported in `loom.store.graphrag`.
 
+- **Web search tool.** `loom.search` subpackage: pluggable `SearchProvider` protocol with five concrete providers — `DuckDuckGoSearchProvider` (default, free, no API key), `BraveSearchProvider`, `TavilySearchProvider`, `GoogleSearchProvider`, and `CompositeSearchProvider` (multi-provider orchestration with `CONCURRENT` and `FALLBACK` strategies, URL deduplication). `WebSearchTool(ToolHandler)` exposes `web_search` to the LLM. Optional extra: `pip install "loom[search]"`.
+
+- **Web scrape tool.** `loom.scrape` subpackage: pluggable `ScrapeProvider` protocol with `ScraplingProvider` (cascade fetching: fetcher→dynamic→stealthy with block/auth detection, cookie auth fallback, format conversion to text/markdown/HTML, CSS selector and XPath extraction). `WebScrapeTool(ToolHandler)` exposes `web_scrape` to the LLM. Optional extra: `pip install "loom[scrape]"`.
+
+- **Cookie store.** `loom.store.cookies`: `CookieStore` protocol + `FilesystemCookieStore` (Netscape cookies.txt format, one file per domain). Used by `ScraplingProvider` for cookie-based auth retry across requests.
+
 ### Fixed
 
 - **Web search: switch to `ddgs` package and fix event-loop blocking.** `DuckDuckGoSearchProvider` now uses the `ddgs` library (deedy5/ddgs v9+) instead of the deprecated `duckduckgo-search` package. Sync DDGS calls run via `asyncio.to_thread()` so they no longer block the event loop — this was the root cause of both `CONCURRENT` and `FALLBACK` composite strategies failing to invoke other providers when DDGS was slow or rate-limited. Dependency updated from `duckduckgo-search>=7.0` to `ddgs>=9.0` in `loom[search]` and `loom[dev]` extras.

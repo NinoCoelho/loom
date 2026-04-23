@@ -1357,3 +1357,207 @@ class PromptBuilder:
     def add(self, section: PromptSection) -> None: ...
     def build(self) -> str: ...
 ```
+
+---
+
+## Web Search (`loom.search`)
+
+### `SearchResult`
+
+```python
+@dataclass
+class SearchResult:
+    title: str
+    url: str
+    snippet: str
+    source: str
+    score: float | None = None
+    raw: dict[str, Any] | None = None  # provider-specific payload
+```
+
+### `SearchProviderError`
+
+```python
+class SearchProviderError(Exception):
+    provider: str
+    status_code: int | None
+```
+
+### `SearchProvider` (Protocol)
+
+```python
+class SearchProvider(Protocol):
+    @property
+    def name(self) -> str: ...
+
+    async def search(self, query: str, max_results: int = 10) -> list[SearchResult]: ...
+```
+
+### Search Providers
+
+| Provider | Class | Requires API key | Install |
+|---|---|---|---|
+| DuckDuckGo (default) | `DuckDuckGoSearchProvider` | No | `pip install "loom[search]"` |
+| Brave | `BraveSearchProvider` | Yes (`api_key`) | — |
+| Tavily | `TavilySearchProvider` | Yes (`api_key`) | — |
+| Google Custom Search | `GoogleSearchProvider` | Yes (`api_key` + `cx`) | — |
+
+### `CompositeSearchProvider`
+
+```python
+class CompositeSearchProvider:
+    def __init__(
+        self,
+        providers: list[SearchProvider],
+        *,
+        strategy: SearchStrategy = SearchStrategy.CONCURRENT,
+    ): ...
+
+    @property
+    def name(self) -> str: ...  # "composite"
+
+    @property
+    def strategy(self) -> SearchStrategy: ...
+
+    async def search(self, query: str, max_results: int = 10) -> list[SearchResult]: ...
+```
+
+### `SearchStrategy`
+
+```python
+class SearchStrategy(StrEnum):
+    CONCURRENT = "concurrent"  # fire all providers, merge, deduplicate
+    FALLBACK = "fallback"      # try in order, stop when enough results
+```
+
+### `WebSearchTool`
+
+```python
+class WebSearchTool(ToolHandler):
+    def __init__(self, provider: SearchProvider) -> None: ...
+
+    @classmethod
+    def from_config(
+        cls,
+        providers: list[SearchProvider] | None = None,
+        *,
+        strategy: SearchStrategy = SearchStrategy.CONCURRENT,
+    ) -> WebSearchTool: ...
+```
+
+Tool name: `web_search`. Parameters: `query` (str, required), `max_results` (int, optional, default 10). Returns JSON array of `{title, url, snippet, source, score?}`.
+
+---
+
+## Web Scrape (`loom.scrape`)
+
+### `ScrapeResult`
+
+```python
+@dataclass
+class ScrapeResult:
+    url: str
+    content: str
+    content_type: str       # "text" | "markdown" | "html"
+    status_code: int | None = None
+    cookies: dict[str, str] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+```
+
+### `ScrapeProviderError`
+
+```python
+class ScrapeProviderError(Exception):
+    provider: str
+    status_code: int | None
+```
+
+### `ScrapeProvider` (Protocol)
+
+```python
+class ScrapeProvider(Protocol):
+    @property
+    def name(self) -> str: ...
+
+    async def scrape(
+        self,
+        url: str,
+        output_format: str = "text",
+        css_selector: str | None = None,
+        xpath: str | None = None,
+    ) -> ScrapeResult: ...
+```
+
+### `ScraplingProvider`
+
+```python
+class ScraplingProvider:
+    def __init__(
+        self,
+        *,
+        mode: str = "auto",              # "auto" | "fetcher" | "dynamic" | "stealthy"
+        cookie_store: CookieStore | None = None,
+        headless: bool = True,
+        timeout: int = 30,
+        max_content_bytes: int = 102400,
+    ): ...
+
+    @property
+    def name(self) -> str: ...  # "scrapling"
+
+    async def scrape(
+        self,
+        url: str,
+        output_format: str = "text",
+        css_selector: str | None = None,
+        xpath: str | None = None,
+    ) -> ScrapeResult: ...
+```
+
+In `auto` mode, cascades through fetcher → dynamic → stealthy on block detection. Detects auth failures and retries with stored cookies when a `CookieStore` is configured. Requires `pip install "loom[scrape]"`.
+
+### `WebScrapeTool`
+
+```python
+class WebScrapeTool(ToolHandler):
+    def __init__(self, provider: ScrapeProvider) -> None: ...
+
+    @classmethod
+    def from_config(
+        cls,
+        *,
+        mode: str = "auto",
+        cookie_store: CookieStore | None = None,
+        headless: bool = True,
+        timeout: int = 30,
+        max_content_bytes: int = 102400,
+    ) -> WebScrapeTool: ...
+```
+
+Tool name: `web_scrape`. Parameters: `url` (str, required), `output_format` (`"text"` | `"markdown"` | `"html"`, optional), `css_selector` (str, optional), `xpath` (str, optional).
+
+---
+
+## Cookie Store (`loom.store.cookies`)
+
+### `CookieStore` (Protocol)
+
+```python
+class CookieStore(Protocol):
+    async def get_cookies(self, domain: str) -> dict[str, str] | None: ...
+    async def save_cookies(self, domain: str, cookies: dict[str, str]) -> None: ...
+    async def list_domains(self) -> list[str]: ...
+```
+
+### `FilesystemCookieStore`
+
+```python
+class FilesystemCookieStore:
+    def __init__(self, cookie_dir: Path) -> None: ...
+    async def get_cookies(self, domain: str) -> dict[str, str] | None: ...
+    async def save_cookies(self, domain: str, cookies: dict[str, str]) -> None: ...
+    async def list_domains(self) -> list[str]: ...
+```
+
+Persists one Netscape cookies.txt file per domain in the configured directory. Used by `ScraplingProvider` for cookie-based auth retry.
+```

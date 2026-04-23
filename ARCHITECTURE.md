@@ -73,6 +73,7 @@ When `content_parts` is set, the agent loop constructs a multimodal `ChatMessage
 | `delegate` | `tools/delegate.py` | Inter-agent delegation via AgentRuntime |
 | `edit_identity` | `tools/profile.py` | Edit SOUL/IDENTITY/USER.md within permission bounds |
 | `web_search` | `tools/search.py` | Multi-provider web search (DDGS, Brave, Tavily, Google) with concurrent/fallback strategies |
+| `web_scrape` | `tools/scrape.py` | Scrape web pages — text/markdown/HTML, CSS/XPath, cookie auth |
 
 **Search providers** (`loom.search`):
 
@@ -84,6 +85,23 @@ When `content_parts` is set, the agent loop constructs a multimodal `ChatMessage
 | Google Custom Search | `GoogleSearchProvider` | Yes (`api_key` + `cx`) | — |
 
 The DDGS provider runs in a background thread via `asyncio.to_thread()` to avoid blocking the event loop. Multiple providers can be composed with `CompositeSearchProvider` using `CONCURRENT` (fire all, merge, deduplicate) or `FALLBACK` (try sequentially, stop when enough results) strategies.
+
+**Web scrape** (`loom.scrape`):
+
+Scrapling-based web scrape provider with cascade fetching and cookie auth fallback.
+
+| Mode | Class | Description |
+|---|---|---|
+| `fetcher` | `Fetcher` | Plain HTTP GET |
+| `dynamic` | `DynamicFetcher` | Headless browser (needs `scrapling install`) |
+| `stealthy` | `StealthyFetcher` | Anti-detection browser |
+| `auto` (default) | cascade | Tries fetcher → dynamic → stealthy on block detection |
+
+`ScraplingProvider` detects anti-bot blocks (Cloudflare) and auth failures (login wall). When a cookie store is configured and auth failure is detected, it retries with stored cookies for that domain. Output formats: `text`, `markdown`, `html`. Supports CSS selectors and XPath for element extraction.
+
+**Cookie store** (`loom.store.cookies`):
+
+`CookieStore` protocol + `FilesystemCookieStore` (Netscape cookies.txt format, one file per domain). Used by `ScraplingProvider` for cookie-based auth retry across requests.
 
 **Adding custom tools** -- subclass `ToolHandler`, implement `tool` and `invoke`, register with `ToolRegistry`.
 

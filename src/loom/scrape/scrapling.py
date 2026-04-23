@@ -1,3 +1,12 @@
+"""Scrapling-based web scrape provider with cascade fetching and cookie authentication fallback.
+
+Supports three fetcher modes (``fetcher`` — plain HTTP, ``dynamic`` —
+headless browser, ``stealthy`` — anti-detection browser) and an ``auto``
+mode that cascades through them on block detection. Optional
+:class:`~loom.store.cookies.CookieStore` enables cookie-based auth retry.
+Requires the ``[scrape]`` optional extra.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -27,10 +36,12 @@ _AUTH_PATTERNS = re.compile(
 
 
 def _extract_domain(url: str) -> str:
+    """Extract the hostname from a URL."""
     return urlparse(url).hostname or ""
 
 
 def _looks_like_block(content: str, status_code: int | None) -> bool:
+    """Detect anti-bot / Cloudflare challenge pages."""
     if status_code in (403, 503):
         return bool(_BLOCK_PATTERNS.search(content))
     if status_code == 200 and len(content) < 500:
@@ -39,6 +50,7 @@ def _looks_like_block(content: str, status_code: int | None) -> bool:
 
 
 def _looks_like_auth_failure(content: str, status_code: int | None) -> bool:
+    """Detect login/authentication wall responses."""
     if status_code == 401:
         return True
     if status_code == 403 and not _looks_like_block(content, status_code):
@@ -49,6 +61,7 @@ def _looks_like_auth_failure(content: str, status_code: int | None) -> bool:
 
 
 def _truncate(content: str, max_bytes: int) -> str:
+    """Truncate content to a byte limit with a sentinel."""
     encoded = content.encode("utf-8")
     if len(encoded) <= max_bytes:
         return content
@@ -56,6 +69,7 @@ def _truncate(content: str, max_bytes: int) -> str:
 
 
 def _extract_by_selector(html_content: str, css_selector: str | None, xpath: str | None) -> str:
+    """Extract content from HTML using CSS selectors or XPath."""
     if not css_selector and not xpath:
         return html_content
 
@@ -88,6 +102,11 @@ def _extract_by_selector(html_content: str, css_selector: str | None, xpath: str
 
 
 def _html_to_markdown(html: str) -> str:
+    """Crude HTML-to-markdown conversion.
+
+    Strips ``<style>``, ``<script>``, ``<head>`` blocks and converts
+    common tags to their Markdown equivalents.
+    """
     text = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.DOTALL)
     text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL)
     text = re.sub(r"<head>.*?</head>", "", text, flags=re.DOTALL)
@@ -108,6 +127,12 @@ def _html_to_markdown(html: str) -> str:
 
 
 class ScraplingProvider:
+    """Scrape provider backed by the Scrapling library.
+
+    Supports cascade fetching (``auto`` mode) and cookie-based
+    authentication fallback via :class:`~loom.store.cookies.CookieStore`.
+    """
+
     def __init__(
         self,
         *,
@@ -117,6 +142,7 @@ class ScraplingProvider:
         timeout: int = 30,
         max_content_bytes: int = 102400,
     ) -> None:
+        """Configure fetcher mode, cookie store, headless flag, timeout, and max content size."""
         if mode not in ("auto", "fetcher", "dynamic", "stealthy"):
             raise ValueError(f"Invalid mode: {mode}")
         self._mode = mode
@@ -127,6 +153,7 @@ class ScraplingProvider:
 
     @property
     def name(self) -> str:
+        """Provider identifier."""
         return "scrapling"
 
     async def scrape(
@@ -136,6 +163,8 @@ class ScraplingProvider:
         css_selector: str | None = None,
         xpath: str | None = None,
     ) -> ScrapeResult:
+        """Fetch URL, detect blocks/auth, retry with cookies, convert
+        to the requested format."""
         result = await self._cascade_fetch(url, "html")
 
         if (
@@ -191,6 +220,8 @@ class ScraplingProvider:
         output_format: str,
         cookies: dict[str, str] | None = None,
     ) -> ScrapeResult:
+        """Auto mode: try fetcher → dynamic → stealthy; otherwise use
+        the configured mode directly."""
         if self._mode != "auto":
             return await self._fetch(url, output_format, self._mode, cookies)
 
@@ -213,6 +244,7 @@ class ScraplingProvider:
         mode: str,
         cookies: dict[str, str] | None = None,
     ) -> ScrapeResult:
+        """Execute a single fetch using the specified Scrapling fetcher class."""
         try:
             if mode == "fetcher":
                 from scrapling.fetchers import Fetcher

@@ -1,3 +1,11 @@
+"""``web_search`` tool — web search exposed to the LLM.
+
+Wraps a :class:`~loom.search.base.SearchProvider` and returns results as JSON.
+
+Results are returned as JSON with title, URL, snippet, source, and optional
+score.
+"""
+
 from __future__ import annotations
 
 import json
@@ -10,11 +18,17 @@ from loom.types import ToolSpec
 
 
 class WebSearchTool(ToolHandler):
+    """:class:`~loom.tools.base.ToolHandler` wrapping a
+    :class:`~loom.search.base.SearchProvider` for web search."""
+
     def __init__(self, provider: SearchProvider) -> None:
+        """Wrap a search provider."""
         self._provider = provider
 
     @property
     def tool(self) -> ToolSpec:
+        """Tool spec: ``web_search`` with ``query`` and optional
+        ``max_results`` parameters."""
         return ToolSpec(
             name="web_search",
             description=(
@@ -38,6 +52,7 @@ class WebSearchTool(ToolHandler):
         )
 
     async def invoke(self, args: dict) -> ToolResult:
+        """Execute the search and return JSON-formatted results."""
         query = args.get("query", "")
         if not query:
             return ToolResult(text="Error: query is required", is_error=True)
@@ -73,6 +88,9 @@ class WebSearchTool(ToolHandler):
         *,
         strategy: SearchStrategy = SearchStrategy.CONCURRENT,
     ) -> WebSearchTool:
+        """Factory — :class:`~loom.search.ddgs.DuckDuckGoSearchProvider`
+        by default, or :class:`~loom.search.composite.CompositeSearchProvider`
+        when multiple providers are given."""
         if not providers:
             return cls(DuckDuckGoSearchProvider())
 

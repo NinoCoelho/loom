@@ -13,6 +13,10 @@ Top-level exports are grouped by subsystem:
 * **Skills** — :class:`~loom.skills.types.Skill`, :class:`~loom.skills.registry.SkillRegistry`
 * **Auth** — credential appliers, resolvers, and policies (:mod:`loom.auth`)
 * **Heartbeat** — :class:`~loom.heartbeat.types.HeartbeatDriver`, schedulers, and managers
+* **Search** — :class:`~loom.search.base.SearchProvider`, multi-provider
+  orchestration, web search tool
+* **Scrape** — :class:`~loom.scrape.base.ScrapeProvider`, Scrapling cascade
+  fetcher, web scrape tool
 * **HITL** — :class:`~loom.hitl.broker.HitlBroker` for web/SSE human-in-the-loop
 * **MCP / ACP** — optional extras: Model Context Protocol and multi-agent WebSocket transport
 
@@ -80,10 +84,23 @@ from loom.mcp import McpClient, McpServerConfig, McpToolHandler
 from loom.permissions import AgentPermissions
 from loom.prompt import PromptBuilder, PromptSection
 from loom.runtime import AgentRuntime
+from loom.scrape import ScrapeProvider, ScrapeProviderError, ScrapeResult, ScraplingProvider
+from loom.search import (
+    BraveSearchProvider,
+    CompositeSearchProvider,
+    DuckDuckGoSearchProvider,
+    GoogleSearchProvider,
+    SearchProvider,
+    SearchProviderError,
+    SearchResult,
+    SearchStrategy,
+    TavilySearchProvider,
+)
 from loom.skills.guard import SkillGuard
 from loom.skills.manager import SkillManager
 from loom.skills.registry import SkillRegistry
 from loom.skills.types import Skill, SkillGuardVerdict, SkillMetadata
+from loom.store.cookies import CookieStore, FilesystemCookieStore
 from loom.store.embeddings import OllamaEmbeddingProvider, OpenAIEmbeddingProvider
 from loom.store.graph import Entity, EntityGraph, Triple
 from loom.store.graphrag import (
@@ -116,6 +133,8 @@ from loom.store.vault import FilesystemVaultProvider, VaultProvider
 from loom.store.vector import VectorHit, VectorStore
 from loom.tools.base import ToolHandler, ToolResult
 from loom.tools.registry import ToolRegistry
+from loom.tools.scrape import WebScrapeTool
+from loom.tools.search import WebSearchTool
 from loom.tools.ssh import SshCallTool
 from loom.tools.vault import VaultToolHandler
 from loom.types import (
@@ -279,4 +298,25 @@ __all__ = [
     "load_heartbeat",
     "make_run_fn",
     "parse_schedule",
+    # search
+    "BraveSearchProvider",
+    "CompositeSearchProvider",
+    "DuckDuckGoSearchProvider",
+    "GoogleSearchProvider",
+    "SearchProvider",
+    "SearchProviderError",
+    "SearchResult",
+    "SearchStrategy",
+    "TavilySearchProvider",
+    # scrape
+    "ScrapeProvider",
+    "ScrapeProviderError",
+    "ScrapeResult",
+    "ScraplingProvider",
+    # store.cookies
+    "CookieStore",
+    "FilesystemCookieStore",
+    # tools — search/scrape
+    "WebSearchTool",
+    "WebScrapeTool",
 ]

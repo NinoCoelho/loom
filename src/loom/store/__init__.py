@@ -1,4 +1,4 @@
-"""Storage layer — secrets, memory, graph, vector, session, and vault.
+"""Storage layer — secrets, memory, graph, vector, session, vault, and cookies.
 
 Provides pluggable backends for the core storage primitives used by
 the agent runtime:
@@ -14,6 +14,8 @@ the agent runtime:
 * **Session** — SQLite-backed session history (:class:`SessionStore`).
 * **Vault** — typed file vault (:class:`VaultProvider`) for binary or
   structured file storage.
+* **Cookies** — domain-keyed cookie persistence (:class:`CookieStore`)
+  for web scraping auth.
 
 Embedding providers (:class:`OpenAIEmbeddingProvider`,
 :class:`OllamaEmbeddingProvider`) are also re-exported for use by
@@ -21,6 +23,12 @@ the memory and vector stores.
 """
 
 from loom.store.atomic import atomic_write as atomic_write
+from loom.store.cookies import (
+    CookieStore as CookieStore,
+)
+from loom.store.cookies import (
+    FilesystemCookieStore as FilesystemCookieStore,
+)
 from loom.store.embeddings import (
     OllamaEmbeddingProvider as OllamaEmbeddingProvider,
 )
@@ -106,6 +114,7 @@ __all__ = [
     "BasicAuthSecret",
     "BearerTokenSecret",
     "Chunk",
+    "CookieStore",
     "Entity",
     "EntityGraph",
     "EnrichedRetrieval",
@@ -132,6 +141,7 @@ __all__ = [
     "Triple",
     "VectorHit",
     "VectorStore",
+    "FilesystemCookieStore",
     "FilesystemVaultProvider",
     "VaultProvider",
     "VaultStore",
