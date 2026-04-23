@@ -55,16 +55,6 @@ def _truncate(content: str, max_bytes: int) -> str:
     return encoded[:max_bytes].decode("utf-8", errors="replace") + "\n... [truncated]"
 
 
-def _extract_content(page, output_format: str) -> str:
-    if output_format == "html":
-        return page.get_outer_html() if hasattr(page, "get_outer_html") else str(page)
-    if output_format == "markdown":
-
-        html = page.get_outer_html() if hasattr(page, "get_outer_html") else str(page)
-        return _html_to_markdown(html)
-    return page.css("body::text").get() if page.css("body") else page.get_all_text()
-
-
 def _extract_by_selector(html_content: str, css_selector: str | None, xpath: str | None) -> str:
     if not css_selector and not xpath:
         return html_content
@@ -85,6 +75,10 @@ def _extract_by_selector(html_content: str, css_selector: str | None, xpath: str
 
     if not elements:
         return ""
+
+    if hasattr(elements, "getall"):
+        return "\n---\n".join(str(e) for e in elements.getall())
+
     texts = []
     for el in elements:
         text = el.get_all_text() if hasattr(el, "get_all_text") else str(el)
@@ -94,7 +88,10 @@ def _extract_by_selector(html_content: str, css_selector: str | None, xpath: str
 
 
 def _html_to_markdown(html: str) -> str:
-    text = re.sub(r"<br\s*/?>", "\n", html)
+    text = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.DOTALL)
+    text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL)
+    text = re.sub(r"<head>.*?</head>", "", text, flags=re.DOTALL)
+    text = re.sub(r"<br\s*/?>", "\n", text)
     text = re.sub(r"</?p[^>]*>", "\n", text)
     text = re.sub(r"<h[1-6][^>]*>", "\n## ", text)
     text = re.sub(r"</h[1-6]>", "\n", text)
@@ -139,7 +136,7 @@ class ScraplingProvider:
         css_selector: str | None = None,
         xpath: str | None = None,
     ) -> ScrapeResult:
-        result = await self._cascade_fetch(url, output_format)
+        result = await self._cascade_fetch(url, "html")
 
         if (
             _looks_like_auth_failure(result.content, result.status_code)
@@ -150,12 +147,11 @@ class ScraplingProvider:
                 cookies = await self._cookie_store.get_cookies(domain)
                 if cookies:
                     logger.info("Auth failure detected, retrying with cookies for %s", domain)
-                    retry = await self._cascade_fetch(url, output_format, cookies=cookies)
+                    retry = await self._cascade_fetch(url, "html", cookies=cookies)
                     if not _looks_like_auth_failure(retry.content, retry.status_code):
                         if retry.cookies:
                             await self._cookie_store.save_cookies(domain, retry.cookies)
-                        return retry
-                    return retry
+                        result = retry
 
         if (
             self._cookie_store
@@ -166,11 +162,26 @@ class ScraplingProvider:
             if domain:
                 await self._cookie_store.save_cookies(domain, result.cookies)
 
+        html_content = result.content
+
         if css_selector or xpath:
-            result.content = _extract_by_selector(
-                result.content, css_selector, xpath
-            )
+            result.content = _extract_by_selector(html_content, css_selector, xpath)
             result.content_type = "text"
+        elif output_format != "html":
+            try:
+                from scrapling.parser import Selector
+            except ImportError:
+                pass
+            else:
+                sel = Selector(html_content)
+                if output_format == "text":
+                    result.content = sel.get_all_text()
+                    result.content_type = "text"
+                elif output_format == "markdown":
+                    result.content = _html_to_markdown(html_content)
+                    result.content_type = "markdown"
+
+        result.content = _truncate(result.content, self._max_content_bytes)
 
         return result
 
@@ -243,7 +254,10 @@ class ScraplingProvider:
                 status = exc.status_code
             raise ScrapeProviderError("scrapling", msg, status_code=status) from exc
 
-        content = _extract_content(page, "html")
+        if hasattr(page, "body") and isinstance(page.body, bytes):
+            content = page.body.decode("utf-8", errors="replace")
+        else:
+            content = str(page)
         resp_cookies = None
         if hasattr(page, "cookies") and page.cookies:
             resp_cookies = (
