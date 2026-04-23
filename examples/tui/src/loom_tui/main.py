@@ -202,7 +202,10 @@ def setup(
 
 
 @app.command()
-def send(message: str):
+def send(
+    message: str = typer.Argument(..., help="Message to send to the agent"),
+    model: str | None = typer.Option(None, help="Override model for this request"),
+):
     """Send a single message and print the response."""
     config_store = ConfigStore(LOOM_DIR / "config.json")
     config = config_store.load()
@@ -213,7 +216,7 @@ def send(message: str):
         return
 
     history = [ChatMessage(role=Role.USER, content=message)]
-    turn = asyncio.run(agent.run_turn(history))
+    turn = asyncio.run(agent.run_turn(history, model_id=model))
     console.print(Markdown(turn.reply))
 
 

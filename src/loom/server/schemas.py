@@ -17,6 +17,7 @@ class ChatRequest(BaseModel):
     session_id: str = "__new__"
     context: dict | None = None
     stream: bool = False
+    model: str | None = None
 
 
 class ChatReply(BaseModel):

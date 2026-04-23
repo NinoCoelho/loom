@@ -84,7 +84,7 @@ def create_app(
             sessions.set_title(session_id, req.message[:80])
 
         history.append(ChatMessage(role=Role.USER, content=req.message))
-        turn = await agent.run_turn(history, context=req.context)
+        turn = await agent.run_turn(history, context=req.context, model_id=req.model)
 
         history.append(ChatMessage(role=Role.ASSISTANT, content=turn.reply))
         sessions.replace_history(session_id, history)
@@ -117,7 +117,7 @@ def create_app(
 
         async def _generate():
             content_parts: list[str] = []
-            async for event in await agent.run_turn_stream(history, context=req.context):
+            async for event in await agent.run_turn_stream(history, context=req.context, model_id=req.model):
                 if hasattr(event, "delta") and event.type == "content_delta":
                     content_parts.append(event.delta)
                 yield f"data: {json.dumps({'type': event.type})}\n\n"
