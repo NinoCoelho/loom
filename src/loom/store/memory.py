@@ -35,6 +35,8 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 import yaml
 
 from loom.store.atomic import atomic_write
+from loom.store.frontmatter import parse_frontmatter, build_frontmatter, rewrite_frontmatter as _rewrite_fm
+from loom.store.db import SqliteResource, ensure_columns
 from loom.store.embeddings import _cosine_similarity
 from loom.store.vector import _pack_vector, _unpack_vector
 
@@ -182,7 +184,7 @@ def _parse_iso_utc(ts: str) -> datetime:
     return when.astimezone(UTC)
 
 
-class MemoryStore:
+class MemoryStore(SqliteResource):
     def __init__(
         self,
         memory_dir: Path,
@@ -197,9 +199,7 @@ class MemoryStore:
         self._dir.mkdir(parents=True, exist_ok=True)
         self._index_path = index_db or memory_dir / "_index.sqlite"
         self._index_path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(str(self._index_path), check_same_thread=False)
-        self._closed = False
-        self._db.execute("PRAGMA journal_mode=WAL")
+        self._db = self._init_db(self._index_path)
         self._has_fts5 = self._init_fts5()
         self._db.execute("""
             CREATE TABLE IF NOT EXISTS memory_meta (
@@ -224,24 +224,6 @@ class MemoryStore:
         self._vault = vault_provider
         self._vault_prefix = vault_prefix
         self._graphrag = graphrag
-
-    def close(self) -> None:
-        if self._closed:
-            return
-        self._db.close()
-        self._closed = True
-
-    def __enter__(self) -> MemoryStore:
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        self.close()
-
-    def __del__(self) -> None:
-        try:
-            self.close()
-        except Exception:
-            pass
 
     # ── schema ──────────────────────────────────────────────────────
 
@@ -296,21 +278,10 @@ class MemoryStore:
 
     def _migrate_salience_columns(self) -> None:
         """Idempotently add salience columns to pre-existing DBs."""
-        existing = {
-            row[1] for row in self._db.execute("PRAGMA table_info(memory_meta)").fetchall()
-        }
-        for name, spec in _SALIENCE_COLUMNS.items():
-            if name not in existing:
-                self._db.execute(f"ALTER TABLE memory_meta ADD COLUMN {name} {spec}")
-        self._db.commit()
+        ensure_columns(self._db, "memory_meta", _SALIENCE_COLUMNS)
 
     def _migrate_vault_path_column(self) -> None:
-        existing = {
-            row[1] for row in self._db.execute("PRAGMA table_info(memory_meta)").fetchall()
-        }
-        if "vault_path" not in existing:
-            self._db.execute("ALTER TABLE memory_meta ADD COLUMN vault_path TEXT")
-            self._db.commit()
+        ensure_columns(self._db, "memory_meta", {"vault_path": "TEXT"})
 
     # ── paths / IO ──────────────────────────────────────────────────
 
@@ -342,24 +313,20 @@ class MemoryStore:
         if path_exists:
             try:
                 existing = path.read_text(encoding="utf-8")
-                if existing.startswith("---"):
-                    end = existing.find("---", 3)
-                    if end != -1:
-                        old_fm = yaml.safe_load(existing[3:end]) or {}
-                        if "created" in old_fm:
-                            fm["created"] = old_fm["created"]
-                        # Preserve counters across rewrites.
-                        fm.setdefault("access_count", old_fm.get("access_count", 0))
-                        last = old_fm.get("last_recalled_at")
-                        if last is not None:
-                            fm["last_recalled_at"] = last
+                old_fm, _ = parse_frontmatter(existing)
+                if "created" in old_fm:
+                    fm["created"] = old_fm["created"]
+                # Preserve counters across rewrites.
+                fm.setdefault("access_count", old_fm.get("access_count", 0))
+                last = old_fm.get("last_recalled_at")
+                if last is not None:
+                    fm["last_recalled_at"] = last
             except Exception:
                 pass
         if "created" not in fm:
             fm["created"] = now
 
-        fm_str = yaml.dump(fm, default_flow_style=False).strip()
-        full = f"---\n{fm_str}\n---\n{content}"
+        full = build_frontmatter(fm, content)
         atomic_write(path, full)
 
         if self._has_fts5:
@@ -406,16 +373,7 @@ class MemoryStore:
         if not path.exists():
             return None
         raw = path.read_text(encoding="utf-8")
-        fm: dict[str, Any] = {}
-        body = raw
-        if raw.startswith("---"):
-            end = raw.find("---", 3)
-            if end != -1:
-                try:
-                    fm = yaml.safe_load(raw[3:end]) or {}
-                except Exception:
-                    pass
-                body = raw[end + 3 :].strip()
+        fm, body = parse_frontmatter(raw)
 
         return MemoryEntry(
             key=key,
@@ -657,23 +615,7 @@ class MemoryStore:
 
     def _rewrite_frontmatter(self, key: str, updates: dict[str, Any]) -> None:
         """Merge ``updates`` into the ``.md`` file's YAML frontmatter."""
-        path = self._key_path(key)
-        if not path.exists():
-            return
-        raw = path.read_text(encoding="utf-8")
-        fm: dict[str, Any] = {}
-        body = raw
-        if raw.startswith("---"):
-            end = raw.find("---", 3)
-            if end != -1:
-                try:
-                    fm = yaml.safe_load(raw[3:end]) or {}
-                except Exception:
-                    pass
-                body = raw[end + 3 :].lstrip("\n")
-        fm.update(updates)
-        fm_str = yaml.dump(fm, default_flow_style=False).strip()
-        atomic_write(path, f"---\n{fm_str}\n---\n{body}")
+        _rewrite_fm(self._key_path(key), updates)
 
     # ── hybrid recall ───────────────────────────────────────────────
 
@@ -911,16 +853,13 @@ class MemoryStore:
         vpath = existing_vpath or self._vault_path_for_new(key, now)
         try:
             existing_raw = await self._vault.read(vpath)
-            if existing_raw.startswith("---"):
-                end = existing_raw.find("---", 3)
-                if end != -1:
-                    old_fm = yaml.safe_load(existing_raw[3:end]) or {}
-                    if "created" in old_fm:
-                        metadata["created"] = old_fm["created"]
-                    metadata.setdefault("access_count", old_fm.get("access_count", 0))
-                    last = old_fm.get("last_recalled_at")
-                    if last is not None:
-                        metadata["last_recalled_at"] = last
+            old_fm, _ = parse_frontmatter(existing_raw)
+            if "created" in old_fm:
+                metadata["created"] = old_fm["created"]
+            metadata.setdefault("access_count", old_fm.get("access_count", 0))
+            last = old_fm.get("last_recalled_at")
+            if last is not None:
+                metadata["last_recalled_at"] = last
         except (FileNotFoundError, Exception):
             pass
         if "created" not in metadata:
@@ -962,16 +901,7 @@ class MemoryStore:
             raw = await self._vault.read(vpath)
         except FileNotFoundError:
             return None
-        fm: dict[str, Any] = {}
-        body = raw
-        if raw.startswith("---"):
-            end = raw.find("---", 3)
-            if end != -1:
-                try:
-                    fm = yaml.safe_load(raw[3:end]) or {}
-                except Exception:
-                    pass
-                body = raw[end + 3 :].strip()
+        fm, body = parse_frontmatter(raw)
         return MemoryEntry(
             key=key,
             category=fm.get("category", "notes"),
@@ -1119,16 +1049,7 @@ class MemoryStore:
                 )
                 try:
                     raw = p.read_text(encoding="utf-8")
-                    fm: dict[str, Any] = {}
-                    body = raw
-                    if raw.startswith("---"):
-                        end = raw.find("---", 3)
-                        if end != -1:
-                            try:
-                                fm = yaml.safe_load(raw[3:end]) or {}
-                            except Exception:
-                                pass
-                            body = raw[end + 3 :].strip()
+                    fm, body = parse_frontmatter(raw)
                     if self._has_fts5:
                         self._db.execute(
                             "INSERT INTO memory_fts (key, category, content) VALUES (?, ?, ?)",

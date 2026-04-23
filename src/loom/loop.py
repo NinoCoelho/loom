@@ -315,6 +315,111 @@ class Agent:
         except Exception:
             pass
 
+    # ── Shared turn preparation ────────────────────────────────────
+
+    async def _prepare_turn(
+        self,
+        messages: list[ChatMessage],
+        context: dict[str, Any] | None,
+        model_id: str | None,
+    ) -> tuple[list[ChatMessage], LLMProvider, str, str, list[ToolSpec]]:
+        """Common preamble shared by run_turn and run_turn_stream.
+
+        Returns (all_messages, provider, upstream_model, model_name, tools).
+        """
+        if self._config.on_before_turn:
+            messages = self._config.on_before_turn(messages)
+
+        if messages and messages[-1].role == Role.USER and messages[-1].text_content:
+            annotated = self._annotate_short_reply(messages[-1].text_content)
+            if annotated:
+                messages[-1] = ChatMessage(role=Role.USER, content=annotated)
+
+        system_prompt = self._build_system_prompt(context)
+        all_messages = [ChatMessage(role=Role.SYSTEM, content=system_prompt)] + messages
+
+        if model_id is None and self._config.choose_model is not None:
+            try:
+                model_id = self._config.choose_model(messages)
+            except Exception:
+                model_id = None
+        if model_id is None:
+            model_id = self._config.model
+        provider, upstream_model = self._resolve_provider(model_id)
+        model_name = upstream_model or model_id or ""
+        tools = self._build_tools()
+
+        if self._graphrag is not None:
+            try:
+                all_messages = await self._graphrag_enrich(all_messages)
+            except Exception:
+                logger.warning("graphrag enrichment failed", exc_info=True)
+
+        return all_messages, provider, upstream_model, model_name, tools
+
+    async def _apply_before_llm_hook(
+        self,
+        all_messages: list[ChatMessage],
+    ) -> tuple[list[ChatMessage] | None, Exception | None]:
+        """Run the before_llm_call hook if configured.
+
+        Returns (messages_or_None, exception_or_None).
+        On success returns (messages, None). On error returns (None, exc).
+        """
+        if self._config.before_llm_call is None:
+            return all_messages, None
+        try:
+            result = self._config.before_llm_call(all_messages)
+            if inspect.isawaitable(result):
+                result = await result
+            if result is not None:
+                return result, None
+        except Exception as exc:
+            return None, exc
+        return all_messages, None
+
+    # ── Shared tool dispatch ────────────────────────────────────────
+
+    async def _handle_tool_call(
+        self,
+        tc: ToolCall,
+        skills_touched: list[str],
+    ) -> tuple[str, bool, list[Any] | None, list[str]]:
+        """Dispatch a single tool call.
+
+        Returns (result_text, is_error, content_parts, skills_touched_update).
+        """
+        is_error = False
+        if tc.name == "activate_skill" and self._skills:
+            args = json.loads(tc.arguments) if tc.arguments else {}
+            skill_name = args.get("name", "")
+            skill = self._skills.get(skill_name)
+            if skill:
+                result_text = skill.body
+                skills_touched.append(skill_name)
+            else:
+                result_text = f"Skill not found: {skill_name}"
+                is_error = True
+        else:
+            result_text, is_error, tool_parts = await self._dispatch_tool_result(tc)
+            return result_text, is_error, tool_parts, skills_touched
+        return result_text, is_error, None, skills_touched
+
+    def _build_tool_message(self, tc: ToolCall, result_text: str, content_parts: list[Any] | None) -> ChatMessage:
+        """Build a TOOL-role message from dispatch results."""
+        if content_parts:
+            from loom.types import TextPart
+
+            tool_msg_content: str | list[Any] = [TextPart(text=result_text)] + content_parts
+        else:
+            tool_msg_content = result_text
+        return ChatMessage(
+            role=Role.TOOL,
+            content=tool_msg_content,
+            tool_call_id=tc.id,
+            name=tc.name,
+        )
+
     async def _call_llm(
         self,
         provider: LLMProvider,
@@ -361,63 +466,33 @@ class Agent:
         context: dict[str, Any] | None = None,
         model_id: str | None = None,
     ) -> AgentTurn:
-        if self._config.on_before_turn:
-            messages = self._config.on_before_turn(messages)
-
-        if messages and messages[-1].role == Role.USER and messages[-1].text_content:
-            annotated = self._annotate_short_reply(messages[-1].text_content)
-            if annotated:
-                messages[-1] = ChatMessage(role=Role.USER, content=annotated)
-
-        system_prompt = self._build_system_prompt(context)
-        all_messages = [ChatMessage(role=Role.SYSTEM, content=system_prompt)] + messages
-
-        # Precedence: explicit per-call arg > choose_model hook > config default.
-        if model_id is None and self._config.choose_model is not None:
-            try:
-                model_id = self._config.choose_model(messages)
-            except Exception:
-                model_id = None
-        if model_id is None:
-            model_id = self._config.model
-        provider, upstream_model = self._resolve_provider(model_id)
-        model_name = upstream_model or model_id or ""
+        all_messages, provider, upstream_model, model_name, tools = (
+            await self._prepare_turn(messages, context, model_id)
+        )
         self._emit("turn_start", {"model": model_name, "num_messages": len(messages)})
-        tools = self._build_tools()
 
         skills_touched: list[str] = []
         total_input = 0
         total_output = 0
         total_tool_calls = 0
 
-        if self._graphrag is not None:
-            try:
-                all_messages = await self._graphrag_enrich(all_messages)
-            except Exception:
-                logger.warning("graphrag enrichment failed", exc_info=True)
-
         for iteration in range(self._config.max_iterations):
-            if self._config.before_llm_call is not None:
-                try:
-                    result = self._config.before_llm_call(all_messages)
-                    if inspect.isawaitable(result):
-                        result = await result
-                    if result is not None:
-                        all_messages = result
-                except Exception as exc:
-                    turn = AgentTurn(
-                        reply=f"[before_llm_call hook error: {exc}]",
-                        iterations=iteration,
-                        skills_touched=skills_touched,
-                        messages=all_messages,
-                        input_tokens=total_input,
-                        output_tokens=total_output,
-                        tool_calls=total_tool_calls,
-                        model=model_name,
-                    )
-                    if self._config.on_after_turn:
-                        self._config.on_after_turn(turn)
-                    return turn
+            hooked, hook_exc = await self._apply_before_llm_hook(all_messages)
+            if hooked is None:
+                turn = AgentTurn(
+                    reply=f"[before_llm_call hook error: {hook_exc}]",
+                    iterations=iteration,
+                    skills_touched=skills_touched,
+                    messages=all_messages,
+                    input_tokens=total_input,
+                    output_tokens=total_output,
+                    tool_calls=total_tool_calls,
+                    model=model_name,
+                )
+                if self._config.on_after_turn:
+                    self._config.on_after_turn(turn)
+                return turn
+            all_messages = hooked
 
             response: ChatResponse = await self._call_llm(
                 provider, all_messages, tools, upstream_model
@@ -454,35 +529,10 @@ class Agent:
 
             for tc in response.message.tool_calls:
                 total_tool_calls += 1
-                tool_content_parts: list[Any] | None = None
-                if tc.name == "activate_skill" and self._skills:
-                    args = json.loads(tc.arguments) if tc.arguments else {}
-                    skill_name = args.get("name", "")
-                    skill = self._skills.get(skill_name)
-                    if skill:
-                        result_text = skill.body
-                        skills_touched.append(skill_name)
-                    else:
-                        result_text = f"Skill not found: {skill_name}"
-                else:
-                    result_text, _, tool_content_parts = await self._dispatch_tool_result(tc)
-
-                tool_msg_content: str | list[Any]
-                if tool_content_parts:
-                    from loom.types import TextPart
-
-                    tool_msg_content = [TextPart(text=result_text)] + tool_content_parts
-                else:
-                    tool_msg_content = result_text
-
-                all_messages.append(
-                    ChatMessage(
-                        role=Role.TOOL,
-                        content=tool_msg_content,
-                        tool_call_id=tc.id,
-                        name=tc.name,
-                    )
+                result_text, is_error, tool_content_parts, skills_touched = (
+                    await self._handle_tool_call(tc, skills_touched)
                 )
+                all_messages.append(self._build_tool_message(tc, result_text, tool_content_parts))
 
         limit_reply = (
             self._config.limit_message_builder(self._config.max_iterations)
@@ -509,27 +559,9 @@ class Agent:
         context: dict[str, Any] | None = None,
         model_id: str | None = None,
     ) -> AsyncIterator[Any]:
-        if self._config.on_before_turn:
-            messages = self._config.on_before_turn(messages)
-
-        if messages and messages[-1].role == Role.USER and messages[-1].text_content:
-            annotated = self._annotate_short_reply(messages[-1].text_content)
-            if annotated:
-                messages[-1] = ChatMessage(role=Role.USER, content=annotated)
-
-        system_prompt = self._build_system_prompt(context)
-        all_messages = [ChatMessage(role=Role.SYSTEM, content=system_prompt)] + messages
-
-        if model_id is None and self._config.choose_model is not None:
-            try:
-                model_id = self._config.choose_model(messages)
-            except Exception:
-                model_id = None
-        if model_id is None:
-            model_id = self._config.model
-        provider, upstream_model = self._resolve_provider(model_id)
-        model_name = upstream_model or model_id or ""
-        tools = self._build_tools()
+        all_messages, provider, upstream_model, model_name, tools = (
+            await self._prepare_turn(messages, context, model_id)
+        )
         self._emit("stream_start", {"model": model_name, "num_messages": len(messages)})
 
         # #9 — apply custom serializer to every outbound event.
@@ -543,28 +575,17 @@ class Agent:
         total_output = 0
         total_tool_calls = 0
 
-        if self._graphrag is not None:
-            try:
-                all_messages = await self._graphrag_enrich(all_messages)
-            except Exception:
-                logger.warning("graphrag enrichment failed", exc_info=True)
-
         for iteration in range(self._config.max_iterations):
-            if self._config.before_llm_call is not None:
-                try:
-                    result = self._config.before_llm_call(all_messages)
-                    if inspect.isawaitable(result):
-                        result = await result
-                    if result is not None:
-                        all_messages = result
-                except Exception as exc:
-                    err_ev = ErrorEvent(
-                        message=str(exc),
-                        reason="hook_error",
-                    )
-                    yield _wrap(err_ev)
-                    yield _wrap(DoneEvent(context={"model": model_name, "iterations": iteration}))
-                    return
+            hooked, hook_exc = await self._apply_before_llm_hook(all_messages)
+            if hooked is None:
+                err_ev = ErrorEvent(
+                    message=str(hook_exc),
+                    reason="hook_error",
+                )
+                yield _wrap(err_ev)
+                yield _wrap(DoneEvent(context={"model": model_name, "iterations": iteration}))
+                return
+            all_messages = hooked
 
             content_parts: list[str] = []
             tool_call_parts: dict[int, dict[str, Any]] = {}
@@ -706,19 +727,9 @@ class Agent:
                 yield _wrap(
                     ToolExecStartEvent(tool_call_id=tc.id, name=tc.name, arguments=tc.arguments)
                 )
-                is_error = False
-                if tc.name == "activate_skill" and self._skills:
-                    args = json.loads(tc.arguments) if tc.arguments else {}
-                    skill_name = args.get("name", "")
-                    skill = self._skills.get(skill_name)
-                    if skill:
-                        result_text = skill.body
-                        skills_touched.append(skill_name)
-                    else:
-                        result_text = f"Skill not found: {skill_name}"
-                        is_error = True
-                else:
-                    result_text, is_error, stream_tool_parts = await self._dispatch_tool_result(tc)
+                result_text, is_error, stream_tool_parts, skills_touched = (
+                    await self._handle_tool_call(tc, skills_touched)
+                )
 
                 yield _wrap(
                     ToolExecResultEvent(
@@ -729,22 +740,7 @@ class Agent:
                     )
                 )
 
-                stream_msg_content: str | list[Any]
-                if stream_tool_parts:
-                    from loom.types import TextPart
-
-                    stream_msg_content = [TextPart(text=result_text)] + stream_tool_parts
-                else:
-                    stream_msg_content = result_text
-
-                all_messages.append(
-                    ChatMessage(
-                        role=Role.TOOL,
-                        content=stream_msg_content,
-                        tool_call_id=tc.id,
-                        name=tc.name,
-                    )
-                )
+                all_messages.append(self._build_tool_message(tc, result_text, stream_tool_parts))
 
         limit_reply = (
             self._config.limit_message_builder(self._config.max_iterations)

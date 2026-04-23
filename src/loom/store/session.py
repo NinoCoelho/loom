@@ -13,16 +13,15 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from loom.store.db import SqliteResource, ensure_columns
 from loom.types import ChatMessage, ContentPart, Role
 
 
-class SessionStore:
+class SessionStore(SqliteResource):
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(str(self._db_path), check_same_thread=False)
-        self._closed = False
-        self._db.execute("PRAGMA journal_mode=WAL")
+        self._db = self._init_db(db_path)
         self._db.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
@@ -53,7 +52,6 @@ class SessionStore:
         """)
         self._db.commit()
         # Idempotent migrations: add columns if missing (for pre-existing DBs)
-        cols = {row[1] for row in self._db.execute("PRAGMA table_info(sessions)").fetchall()}
         migrations = {
             "context": "TEXT",
             "title": "TEXT",
@@ -63,28 +61,9 @@ class SessionStore:
             "output_tokens": "INTEGER DEFAULT 0",
             "tool_call_count": "INTEGER DEFAULT 0",
         }
-        for col_name, col_def in migrations.items():
-            if col_name not in cols:
-                self._db.execute(f"ALTER TABLE sessions ADD COLUMN {col_name} {col_def}")
-        self._db.commit()
+        ensure_columns(self._db, "sessions", migrations)
 
-    def close(self) -> None:
-        if self._closed:
-            return
-        self._db.close()
-        self._closed = True
 
-    def __enter__(self) -> SessionStore:
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        self.close()
-
-    def __del__(self) -> None:
-        try:
-            self.close()
-        except Exception:
-            pass
 
     def get_or_create(
         self, session_id: str, title: str | None = None, context: str | None = None

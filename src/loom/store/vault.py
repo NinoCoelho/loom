@@ -17,6 +17,8 @@ from typing import Any, Protocol, runtime_checkable
 
 import yaml
 
+from loom.store.db import SqliteResource
+from loom.store.frontmatter import parse_frontmatter, build_frontmatter
 from loom.store.atomic import atomic_write
 
 
@@ -46,16 +48,14 @@ class VaultProvider(Protocol):
     def update_frontmatter(self, path: str, updates: dict[str, Any]) -> None: ...
 
 
-class FilesystemVaultProvider:
+class FilesystemVaultProvider(SqliteResource):
     """Default VaultProvider: markdown files on disk + SQLite FTS5 index."""
 
     def __init__(self, vault_dir: Path) -> None:
         self._dir = vault_dir
         self._dir.mkdir(parents=True, exist_ok=True)
         self._index_path = vault_dir / "_index.sqlite"
-        self._db = sqlite3.connect(str(self._index_path), check_same_thread=False)
-        self._closed = False
-        self._db.execute("PRAGMA journal_mode=WAL")
+        self._db = self._init_db(self._index_path)
         self._db.execute("""
             CREATE TABLE IF NOT EXISTS vault_index (
                 path TEXT PRIMARY KEY,
@@ -73,23 +73,7 @@ class FilesystemVaultProvider:
         """)
         self._db.commit()
 
-    def close(self) -> None:
-        if self._closed:
-            return
-        self._db.close()
-        self._closed = True
 
-    def __enter__(self) -> FilesystemVaultProvider:
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        self.close()
-
-    def __del__(self) -> None:
-        try:
-            self.close()
-        except Exception:
-            pass
 
     @property
     def root(self) -> Path:
@@ -102,19 +86,7 @@ class FilesystemVaultProvider:
         return target
 
     def _parse_frontmatter(self, content: str) -> tuple[dict[str, Any], str]:
-        fm: dict[str, Any] = {}
-        body = content
-        if content.startswith("---"):
-            end = content.find("---", 3)
-            if end != -1:
-                import yaml
-
-                try:
-                    fm = yaml.safe_load(content[3:end]) or {}
-                except Exception:
-                    pass
-                body = content[end + 3 :].strip()
-        return fm, body
+        return parse_frontmatter(content)
 
     def _extract_tags(self, fm: dict[str, Any], body: str) -> list[str]:
         tags: list[str] = list(fm.get("tags", []))
@@ -184,10 +156,7 @@ class FilesystemVaultProvider:
     async def write(self, path: str, content: str, metadata: dict | None = None) -> None:
         target = self._safe_resolve(path)
         if metadata:
-            import yaml
-
-            fm_str = yaml.dump(metadata, default_flow_style=False).strip()
-            content = f"---\n{fm_str}\n---\n{content}"
+            content = build_frontmatter(metadata, content)
         atomic_write(target, content)
         self._reindex_doc(path)
 
@@ -224,11 +193,9 @@ class FilesystemVaultProvider:
         if not target.exists():
             return
         raw = target.read_text(encoding="utf-8")
-        fm, body = self._parse_frontmatter(raw)
+        fm, body = parse_frontmatter(raw)
         fm.update(updates)
-        fm_str = yaml.dump(fm, default_flow_style=False).strip()
-        full = f"---\n{fm_str}\n---\n{body}"
-        atomic_write(target, full)
+        atomic_write(target, build_frontmatter(fm, body))
         self._reindex_doc(path)
 
     def reindex_all(self) -> None:

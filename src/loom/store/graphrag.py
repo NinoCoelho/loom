@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from loom.store.embeddings import _cosine_similarity
+from loom.store.db import SqliteResource
 from loom.store.graph import EntityGraph
 from loom.store.vector import VectorStore
 
@@ -263,7 +264,7 @@ def _parse_extraction_response(text: str) -> dict[str, Any]:
     return {"entities": [], "relations": []}
 
 
-class GraphRAGEngine:
+class GraphRAGEngine(SqliteResource):
     """Core GraphRAG engine: chunking, indexing, entity extraction, retrieval."""
 
     def __init__(
@@ -282,10 +283,7 @@ class GraphRAGEngine:
             db_dir / "graphrag_vectors.sqlite", dim=embedding_provider.dim
         )
         self._entity_graph = EntityGraph(db_dir / "graphrag_entities.sqlite")
-        self._chunk_db = sqlite3.connect(
-            str(db_dir / "graphrag_chunks.sqlite"), check_same_thread=False
-        )
-        self._chunk_db.execute("PRAGMA journal_mode=WAL")
+        self._chunk_db = self._init_db(db_dir / "graphrag_chunks.sqlite")
         self._chunk_db.execute("""
             CREATE TABLE IF NOT EXISTS chunks (
                 id TEXT PRIMARY KEY,
@@ -301,10 +299,13 @@ class GraphRAGEngine:
         )
         self._chunk_db.commit()
 
-    def close(self) -> None:
+    def _close_db(self) -> None:
         self._vector_store.close()
         self._entity_graph.close()
-        self._chunk_db.close()
+
+    # Alias for backward compat
+    def close(self) -> None:
+        SqliteResource.close(self)
 
     def export_graph(self) -> dict[str, Any]:
         """Return a JSON-serialisable graph suitable for the UI knowledge view.
@@ -327,11 +328,7 @@ class GraphRAGEngine:
         ]
         return {"nodes": nodes, "edges": edges, "enabled": True}
 
-    def __enter__(self) -> GraphRAGEngine:
-        return self
 
-    def __exit__(self, *args: object) -> None:
-        self.close()
 
     def chunk_text(self, text: str, source_path: str) -> list[Chunk]:
         return chunk_markdown(

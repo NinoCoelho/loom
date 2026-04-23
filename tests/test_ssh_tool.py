@@ -26,7 +26,8 @@ import pytest
 from loom.auth.appliers import SshKeyApplier, SshPasswordApplier
 from loom.auth.resolver import CredentialResolver
 from loom.store.secrets import PasswordSecret, SecretStore, SshPrivateKeySecret
-from loom.tools.ssh import SshCallTool, _classify_error, _truncate
+from loom.tools.ssh import SshCallTool, _classify_error
+from loom.tools.utils import truncate_text as _truncate
 
 try:
     import asyncssh

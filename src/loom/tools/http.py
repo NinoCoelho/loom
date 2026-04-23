@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 import httpx
 
 from loom.tools.base import ToolHandler, ToolResult
+from loom.tools.utils import truncate_text
 from loom.types import ToolSpec
 
 # Hook signature: takes the effective request dict, returns a (possibly
@@ -87,9 +88,7 @@ class HttpCallTool(ToolHandler):
                 else:
                     return ToolResult(text=f"Unsupported method: {method}")
 
-                text = resp.text
-                if len(text) > self._max_response_bytes:
-                    text = text[: self._max_response_bytes] + "\n... [truncated]"
+                text, _ = truncate_text(resp.text, self._max_response_bytes)
                 return ToolResult(
                     text=text,
                     metadata={"status_code": resp.status_code},

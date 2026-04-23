@@ -34,6 +34,7 @@ import time
 import warnings
 from typing import TYPE_CHECKING
 
+from loom.tools.utils import truncate_text
 from loom.llm.redact import redact_sensitive_text
 from loom.tools.base import ToolHandler, ToolResult
 from loom.types import ToolSpec
@@ -41,16 +42,7 @@ from loom.types import ToolSpec
 if TYPE_CHECKING:
     from loom.auth.resolver import CredentialResolver
 
-_TRUNCATION_MARKER = "\n... [truncated]"
 
-
-def _truncate(text: str, max_bytes: int) -> tuple[str, bool]:
-    """Truncate *text* to *max_bytes* bytes (UTF-8), appending a marker if cut."""
-    encoded = text.encode("utf-8")
-    if len(encoded) <= max_bytes:
-        return text, False
-    truncated = encoded[:max_bytes].decode("utf-8", errors="replace")
-    return truncated + _TRUNCATION_MARKER, True
 
 
 def _classify_error(exc: Exception) -> str:
@@ -239,8 +231,8 @@ class SshCallTool(ToolHandler):
         stderr_raw = result.stderr or ""
         exit_code = result.exit_status
 
-        stdout_text, stdout_truncated = _truncate(stdout_raw, self._max_output_bytes)
-        stderr_text, stderr_truncated = _truncate(stderr_raw, self._max_output_bytes)
+        stdout_text, stdout_truncated = truncate_text(stdout_raw, self._max_output_bytes)
+        stderr_text, stderr_truncated = truncate_text(stderr_raw, self._max_output_bytes)
 
         return ToolResult(
             text=stdout_text,

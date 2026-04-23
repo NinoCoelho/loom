@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from pathlib import Path
+from loom.store.db import SqliteResource
 
 
 @dataclass
@@ -73,35 +73,17 @@ CREATE INDEX IF NOT EXISTS idx_mentions_chunk ON entity_mentions(chunk_id);
 """
 
 
-class EntityGraph:
+class EntityGraph(SqliteResource):
     """SQLite-backed entity-relationship graph."""
 
     def __init__(self, db_path: Path) -> None:
         self._path = db_path
-        self._db = sqlite3.connect(str(db_path), check_same_thread=False)
-        self._closed = False
-        self._db.execute("PRAGMA journal_mode=WAL")
+        self._db = self._init_db(db_path)
         self._db.execute("PRAGMA foreign_keys=ON")
         self._db.executescript(_SCHEMA)
         self._db.commit()
 
-    def close(self) -> None:
-        if self._closed:
-            return
-        self._db.close()
-        self._closed = True
 
-    def __enter__(self) -> EntityGraph:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        self.close()
-
-    def __del__(self) -> None:
-        try:
-            self.close()
-        except Exception:
-            pass
 
     def resolve_entity(
         self,

@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from loom.store.db import SqliteResource
 from loom.store.embeddings import _batch_cosine
 
 
@@ -36,15 +37,13 @@ def _unpack_vector(blob: bytes) -> list[float]:
     return list(struct.unpack(f"{n}f", blob))
 
 
-class VectorStore:
+class VectorStore(SqliteResource):
     """SQLite-backed vector store with cosine-similarity search."""
 
     def __init__(self, db_path: Path, dim: int = 768) -> None:
         self._path = db_path
         self._dim = dim
-        self._db = sqlite3.connect(str(db_path), check_same_thread=False)
-        self._closed = False
-        self._db.execute("PRAGMA journal_mode=WAL")
+        self._db = self._init_db(db_path)
         self._db.execute("""
             CREATE TABLE IF NOT EXISTS vectors (
                 id TEXT PRIMARY KEY,
@@ -57,23 +56,7 @@ class VectorStore:
         self._db.execute("CREATE INDEX IF NOT EXISTS idx_vectors_source ON vectors(source)")
         self._db.commit()
 
-    def close(self) -> None:
-        if self._closed:
-            return
-        self._db.close()
-        self._closed = True
 
-    def __enter__(self) -> VectorStore:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        self.close()
-
-    def __del__(self) -> None:
-        try:
-            self.close()
-        except Exception:
-            pass
 
     def upsert(
         self,
