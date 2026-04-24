@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0b1] - 2026-04-23
+
+### Added
+
+- **RFC 0004 — Rich SSE event streaming.** The `/chat/stream` endpoint now emits full event payloads instead of bare `{"type": "..."}` frames. Every event carries `session_id`. A session anchor event (`{type: "session", session_id}`) is emitted as the first SSE frame so consumers can correlate the stream from the start.
+
+- **`DoneEvent` typed fields.** `DoneEvent` promoted from a freeform `context` dict to typed Pydantic fields: `model`, `iterations`, `input_tokens`, `output_tokens`, `tool_calls`, `stop_reason`, `session_id`, `skills_touched`. The `context` dict is retained as an escape hatch for extra metadata.
+
+- **`serialize_event()`** (`loom.server.events`): converts any `StreamEvent` (or pre-serialized dict) into a JSON-safe dict for SSE, with optional `session_id` injection. Handles Pydantic models, dicts, and plain objects.
+
+- **28 new tests** covering DoneEvent typed fields, serialize_event, and SSE route integration (session anchor, content deltas, done event, session_id in all frames, history persistence, usage tracking, session creation/reuse).
+
+- **Enhanced `learn-loom.ipynb`**: API reference tables (AgentTurn, ToolResult, callbacks, memory actions, stream events, appliers), new steps for multi-provider routing and server deployment, architecture diagram, and fixed auth_hook bug.
+
+### Fixed
+
+- **Pre-existing bug: `await` on async generator in `/chat/stream` route.** `run_turn_stream()` returns an `AsyncIterator`, not a coroutine — the erroneous `await` would crash every streaming request. Removed the `await`.
+
+- **Post-refactor QA fixes** (commit `4e36273`): 31 lint errors, `EntityGraph.__init__` missing `Path` import, `pyproject.toml` version mismatch, `MemoryStore.touch()` double-incrementing `access_count`, `_derive_recovery` accepting 4 unused parameters, test using local time instead of UTC, 5 restored `redact_sensitive_text` tests, deprecated `asyncio.get_event_loop()` → `get_running_loop()`, vault tool path validation.
+
+- **`SessionEvent` class** restored in `loom.server.events` after being accidentally removed during refactor.
+
 ## [Unreleased]
 
 ### Added
