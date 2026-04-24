@@ -287,6 +287,13 @@ class SecretStore:
 
 
 class SecretsStore:
+    """Legacy plaintext-JSON secret store.
+
+    .. deprecated:: 0.3.0
+       Use :class:`SecretStore` (Fernet-encrypted) for new code.
+       This class is kept for backward compatibility and will be removed
+       in a future release.
+    """
     def __init__(self, secrets_path: Path) -> None:
         self._path = secrets_path
         self._path.parent.mkdir(parents=True, exist_ok=True)

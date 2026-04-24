@@ -1,3 +1,9 @@
+"""Memory tool — CRUD interface to :class:`~loom.store.memory.MemoryStore`.
+
+Exposes ``read``, ``write``, ``search``, ``list``, and ``delete`` actions
+through a single ``memory`` tool call.  The LLM selects the action via
+the ``action`` parameter; the handler dispatches accordingly.
+"""
 from __future__ import annotations
 
 import json

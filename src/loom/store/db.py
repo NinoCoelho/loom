@@ -68,8 +68,15 @@ def ensure_columns(
     Args:
         db: Open SQLite connection.
         table: Table name to inspect.
-        columns: Mapping of ``column_name -> column_spec`` (e.g. ``"pinned": "INTEGER DEFAULT 0"``).
+        columns: Mapping of ``column_name -> column_spec``
+            (e.g. ``"pinned": "INTEGER DEFAULT 0"``).
+
+    .. note::
+       ``table`` is interpolated directly into SQL.  This is safe as long
+       as callers pass hardcoded table names (current usage), but must not
+       be used with user-supplied input.
     """
+    # table is hardcoded at all call-sites — not user-supplied.
     existing = {row[1] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
     for name, spec in columns.items():
         if name not in existing:

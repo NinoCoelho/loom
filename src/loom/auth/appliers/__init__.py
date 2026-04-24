@@ -10,7 +10,7 @@ The ``context`` dict may carry transport-specific hints.  Known keys:
 - ``version`` (int) — secret version from ``SecretStore``.
 """
 
-from loom.auth.appliers._protocol import Applier
+from loom.auth.appliers._aws import SigV4Applier
 from loom.auth.appliers._http import (
     ApiKeyHeaderApplier,
     ApiKeyStringApplier,
@@ -18,9 +18,9 @@ from loom.auth.appliers._http import (
     BearerHttpApplier,
     OAuth2CCHttpApplier,
 )
-from loom.auth.appliers._ssh import SshConnectArgs, SshKeyApplier, SshPasswordApplier
-from loom.auth.appliers._aws import SigV4Applier
 from loom.auth.appliers._jwt import JwtBearerApplier
+from loom.auth.appliers._protocol import Applier
+from loom.auth.appliers._ssh import SshConnectArgs, SshKeyApplier, SshPasswordApplier
 
 __all__ = [
     "Applier",

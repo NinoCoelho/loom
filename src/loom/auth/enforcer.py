@@ -161,7 +161,7 @@ class PolicyEnforcer:
                     },
                 )
                 # Schedule as a non-blocking background emit
-                asyncio.get_event_loop().call_soon(self._hitl.publish, session_id, event)
+                asyncio.get_running_loop().call_soon(self._hitl.publish, session_id, event)
             return GateDecision(allowed=True, policy=policy)
 
         # ── TIME_BOXED ───────────────────────────────────────────────

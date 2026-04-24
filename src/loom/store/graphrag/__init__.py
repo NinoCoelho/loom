@@ -1,5 +1,8 @@
 """GraphRAG engine — chunking, entity extraction, hybrid retrieval, and context injection."""
 
+from loom.store.graphrag._chunking import chunk_markdown
+from loom.store.graphrag._engine import GraphRAGEngine, ontology_relation_ok
+from loom.store.graphrag._extraction import parse_extraction_response
 from loom.store.graphrag._types import (
     Chunk,
     EmbeddingConfig,
@@ -11,9 +14,6 @@ from loom.store.graphrag._types import (
     RetrievalResult,
     RetrievalTrace,
 )
-from loom.store.graphrag._chunking import chunk_markdown
-from loom.store.graphrag._extraction import parse_extraction_response
-from loom.store.graphrag._engine import GraphRAGEngine, ontology_relation_ok
 
 __all__ = [
     "Chunk",

@@ -11,15 +11,12 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-import yaml
-
-from loom.store.db import SqliteResource
-from loom.store.frontmatter import parse_frontmatter, build_frontmatter
 from loom.store.atomic import atomic_write
+from loom.store.db import SqliteResource
+from loom.store.frontmatter import build_frontmatter, parse_frontmatter
 
 
 @runtime_checkable
@@ -208,3 +205,4 @@ class FilesystemVaultProvider(SqliteResource):
 
 # Back-compat alias (deprecated; use FilesystemVaultProvider).
 VaultStore = FilesystemVaultProvider
+"""Deprecated alias for :class:`FilesystemVaultProvider`."""

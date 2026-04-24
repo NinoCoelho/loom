@@ -24,16 +24,20 @@ Usage::
 
 from __future__ import annotations
 
-import json
 import logging
-import sqlite3
 import time
 from pathlib import Path
 from typing import Any
 
-from loom.store.embeddings import _cosine_similarity
 from loom.store.db import SqliteResource
+from loom.store.embeddings import _cosine_similarity
 from loom.store.graph import EntityGraph
+from loom.store.graphrag._chunking import chunk_markdown
+from loom.store.graphrag._extraction import (
+    _EXTRACTION_PROMPT,
+    _GLEAN_PROMPT,
+    parse_extraction_response,
+)
 from loom.store.graphrag._types import (
     Chunk,
     EnrichedRetrieval,
@@ -42,8 +46,6 @@ from loom.store.graphrag._types import (
     RetrievalResult,
     RetrievalTrace,
 )
-from loom.store.graphrag._chunking import chunk_markdown
-from loom.store.graphrag._extraction import _EXTRACTION_PROMPT, _GLEAN_PROMPT, parse_extraction_response
 from loom.store.vector import VectorStore
 
 logger = logging.getLogger(__name__)

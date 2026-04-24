@@ -6,8 +6,8 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from loom.errors import LLMError, LLMTransportError, MalformedOutputError
-from loom.llm.base import LLMProvider
 from loom.llm._convert import convert_tools_anthropic
+from loom.llm.base import LLMProvider
 from loom.media import encode_to_base64, infer_media_type
 from loom.types import (
     ChatMessage,
@@ -84,6 +84,8 @@ class AnthropicProvider(LLMProvider):
                 "source": {"type": "base64", "media_type": mt, "data": b64},
             }
         if isinstance(part, VideoPart):
+            # Anthropic's message API currently handles video under the
+            # "image" content block type with base64 encoding.
             mt = part.media_type or infer_media_type(part.source)
             b64, _ = encode_to_base64(part.source, mt)
             return {

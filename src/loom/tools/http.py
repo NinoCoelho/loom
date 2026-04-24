@@ -1,3 +1,10 @@
+"""HTTP call tool — make GET/POST requests from the agent loop.
+
+Wraps ``httpx.AsyncClient`` with configurable base headers, timeout,
+max response size, and an optional pre-request hook for credential
+injection or URL rewriting.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable

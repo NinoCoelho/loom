@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from loom.store.secrets import AwsSigV4Secret
 
 
@@ -19,7 +17,8 @@ class SigV4Applier:
             import botocore.credentials
         except ImportError as exc:
             raise ImportError(
-                'botocore is required for SigV4 request signing. Install it with: pip install "loom[aws]"'
+                'botocore is required for SigV4 signing. '
+                'Install it with: pip install "loom[aws]"'
             ) from exc
 
         method: str = context.get("method", "GET").upper()

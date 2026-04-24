@@ -62,6 +62,8 @@ class VaultToolHandler(ToolHandler):
 
         if action == "read":
             path = args.get("path", "")
+            if not path:
+                return ToolResult(text="error: missing required field 'path'")
             content = await self._provider.read(path)
             return ToolResult(text=content)
 
@@ -69,6 +71,8 @@ class VaultToolHandler(ToolHandler):
             path = args.get("path", "")
             content = args.get("content", "")
             metadata = args.get("metadata")
+            if not path:
+                return ToolResult(text="error: missing required field 'path'")
             await self._provider.write(path, content, metadata)
             return ToolResult(text=f"Wrote to {path}")
 
@@ -79,6 +83,8 @@ class VaultToolHandler(ToolHandler):
 
         if action == "delete":
             path = args.get("path", "")
+            if not path:
+                return ToolResult(text="error: missing required field 'path'")
             await self._provider.delete(path)
             return ToolResult(text=f"Deleted {path}")
 

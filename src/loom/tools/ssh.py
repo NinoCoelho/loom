@@ -34,9 +34,9 @@ import time
 import warnings
 from typing import TYPE_CHECKING
 
-from loom.tools.utils import truncate_text
 from loom.llm.redact import redact_sensitive_text
 from loom.tools.base import ToolHandler, ToolResult
+from loom.tools.utils import truncate_text
 from loom.types import ToolSpec
 
 if TYPE_CHECKING:

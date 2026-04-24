@@ -8,8 +8,8 @@ from typing import Any
 import httpx
 
 from loom.errors import LLMTransportError, MalformedOutputError
-from loom.llm.base import LLMProvider
 from loom.llm._convert import convert_tools_openai
+from loom.llm.base import LLMProvider
 from loom.media import encode_to_data_url, infer_media_type
 from loom.types import (
     ChatMessage,

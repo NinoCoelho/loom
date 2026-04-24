@@ -1,3 +1,9 @@
+"""Human-in-the-loop tools — ``AskUserTool`` and ``TerminalTool``.
+
+``AskUserTool`` pauses the agent and waits for a human response via a
+callable handler.  ``TerminalTool`` wraps subprocess execution with an
+optional approval step (delegates to ``AskUserTool`` for confirmation).
+"""
 from __future__ import annotations
 
 import asyncio

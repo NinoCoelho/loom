@@ -10,8 +10,12 @@ objects for LLM tool-use descriptions.
 
 from __future__ import annotations
 
+import logging
+
 from loom.tools.base import ToolHandler, ToolResult
 from loom.types import ToolSpec
+
+logger = logging.getLogger(__name__)
 
 
 class ToolRegistry:
@@ -31,6 +35,7 @@ class ToolRegistry:
         try:
             return await handler.invoke(args)
         except Exception as e:
+            logger.warning("Tool %r raised %s: %s", name, type(e).__name__, e)
             return ToolResult(text=f"Tool error ({name}): {e}", is_error=True)
 
     def specs(self) -> list[ToolSpec]:

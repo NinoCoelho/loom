@@ -119,6 +119,14 @@ class AgentTurn:
         self.tool_calls = tool_calls
         self.model = model
 
+    def __repr__(self) -> str:
+        truncated = len(self.reply) > 60
+        preview = self.reply[:60] + "..." if truncated else self.reply
+        return (
+            f"AgentTurn(reply={preview!r}, iterations={self.iterations}, "
+            f"model={self.model!r}, tool_calls={self.tool_calls})"
+        )
+
 
 class AgentConfig:
     def __init__(
@@ -405,7 +413,12 @@ class Agent:
             return result_text, is_error, tool_parts, skills_touched
         return result_text, is_error, None, skills_touched
 
-    def _build_tool_message(self, tc: ToolCall, result_text: str, content_parts: list[Any] | None) -> ChatMessage:
+    def _build_tool_message(
+        self,
+        tc: ToolCall,
+        result_text: str,
+        content_parts: list[Any] | None,
+    ) -> ChatMessage:
         """Build a TOOL-role message from dispatch results."""
         if content_parts:
             from loom.types import TextPart

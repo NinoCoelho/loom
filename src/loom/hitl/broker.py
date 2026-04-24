@@ -107,7 +107,7 @@ class HitlBroker:
         key = (session_id, request_id)
         if key in self._pending:
             raise ValueError(f"duplicate request_id: {request_id}")
-        fut: asyncio.Future[str] = asyncio.get_event_loop().create_future()
+        fut: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         self._pending[key] = fut
         return fut
 

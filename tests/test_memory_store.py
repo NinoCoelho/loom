@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -245,7 +245,7 @@ async def test_vault_write_and_read(store_with_vault):
 @pytest.mark.asyncio
 async def test_vault_write_creates_date_dir_file(vault_dir, store_with_vault):
     await store_with_vault.write("my-note", "Some content", category="notes")
-    now = datetime.now()
+    now = datetime.now(UTC)
     date_dir = vault_dir / "memory" / f"{now.year:04d}" / f"{now.month:02d}" / f"{now.day:02d}"
     path = date_dir / "my-note.md"
     assert path.exists()

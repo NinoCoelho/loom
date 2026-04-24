@@ -194,3 +194,8 @@ StreamEvent = (
     ErrorEvent,
     DoneEvent,
 )
+"""Union type for all events yielded by :meth:`LLMProvider.chat_stream`.
+
+Consumers should ``isinstance`` against individual event types or check
+``event.type`` to discriminate.  The tuple form allows static type-checkers
+to narrow correctly."""

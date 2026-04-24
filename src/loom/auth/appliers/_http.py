@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import time
 from datetime import UTC, datetime
-from typing import Any
 
 import httpx
 

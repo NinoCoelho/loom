@@ -34,9 +34,10 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 import yaml  # noqa: F401 — kept for backward compat re-exports
 
 from loom.store.atomic import atomic_write
-from loom.store.frontmatter import parse_frontmatter, build_frontmatter, rewrite_frontmatter as _rewrite_fm
 from loom.store.db import SqliteResource, ensure_columns
 from loom.store.embeddings import _cosine_similarity
+from loom.store.frontmatter import build_frontmatter, parse_frontmatter
+from loom.store.frontmatter import rewrite_frontmatter as _rewrite_fm
 from loom.store.memory._vault_backend import VaultMemoryBackend
 from loom.store.vector import _pack_vector, _unpack_vector
 
@@ -612,14 +613,16 @@ class MemoryStore(SqliteResource):
             (now, key),
         )
         self._db.commit()
-        # Persist to frontmatter too so the markdown file stays canonical.
-        entry = self._read_file(key)
-        if entry is None:
-            return
+        # Read the *new* count from DB (already incremented) so the
+        # frontmatter stays in sync with the index.
+        row = self._db.execute(
+            "SELECT access_count FROM memory_meta WHERE key = ?", (key,)
+        ).fetchone()
+        new_count = row[0] if row else 0
         self._rewrite_frontmatter(
             key,
             {
-                "access_count": entry.access_count + 1,
+                "access_count": new_count,
                 "last_recalled_at": now,
             },
         )

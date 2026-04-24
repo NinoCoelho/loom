@@ -26,6 +26,14 @@ class ToolResult:
         self.is_error = is_error
         self.content_parts = content_parts
 
+    def __repr__(self) -> str:
+        truncated = len(self.text) > 40
+        preview = self.text[:40] + "..." if truncated else self.text
+        return (
+            f"ToolResult(text={preview!r}, is_error={self.is_error}, "
+            f"content_parts={len(self.content_parts) if self.content_parts else 0})"
+        )
+
     def to_text(self) -> str:
         return self.text
 

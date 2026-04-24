@@ -7,7 +7,7 @@ this interface. The protocol enables type-safe swapping and easier testing.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from loom.store.secrets import Secret, SecretMetadata
 

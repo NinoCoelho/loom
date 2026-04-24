@@ -1,3 +1,8 @@
+"""Edit-identity tool — lets the agent modify its SOUL, IDENTITY, or USER files.
+
+Each call is gated by :class:`~loom.permissions.AgentPermissions` so
+unprivileged agents cannot overwrite their own personality.
+"""
 from __future__ import annotations
 
 from loom.home import AgentHome

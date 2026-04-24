@@ -56,9 +56,6 @@ _RECOVERY_MAP: dict[FailoverReason, RecoveryAction] = {
 
 def _derive_recovery(
     reason: FailoverReason,
-    retryable: bool,
-    should_compress: bool,
-    should_rotate_credential: bool,
 ) -> RecoveryAction:
     return _RECOVERY_MAP.get(reason, RecoveryAction.RETRY_AFTER_BACKOFF)
 
@@ -81,7 +78,7 @@ def _build(
             RecoveryAction.RETRY,
             RecoveryAction.RETRY_AFTER_BACKOFF,
         )
-    recovery = _derive_recovery(reason, retryable, should_compress, should_rotate_credential)
+    recovery = _derive_recovery(reason)
     return ClassifiedError(
         reason=reason,
         retryable=retryable,
