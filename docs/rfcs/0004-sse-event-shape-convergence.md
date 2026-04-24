@@ -1,99 +1,130 @@
 # RFC 0004 — SSE event shape: convergence toward a richer default
 
-- **Status**: Discussion (not implementation-ready)
+- **Status**: Partially implemented — updated to reflect current state
 - **Author**: —
-- **Target release**: TBD (v0.4 at earliest)
+- **Target release**: v0.4
 - **Depends on**: cross-project alignment (loom, helyx, nexus)
-- **Breaking risk**: HIGH — affects every loom streaming consumer
+- **Breaking risk**: LOW — all changes are additive
 
 ## Summary
 
-Today's `loom.types.StreamEvent` subclasses emit a minimal shape: `{type: <event_name>}` with a handful of per-event fields. Consumers like helyx need richer metadata (session IDs, tool names carried through the stream, delta kinds, run completion markers) and end up translating loom events into their own shape.
+Loom's `StreamEvent` taxonomy has grown significantly since this RFC was first drafted. Most of the events helyx needs now exist in loom, and the `serialize_event` hook lets consumers customise SSE output. However, two gaps remain:
 
-This RFC proposes a conversation — **not yet a concrete design** — about converging on a richer event shape so consumers can feed loom's SSE directly to their UI without a translation layer.
+1. **The `/chat/stream` SSE route is a skeleton** — it strips all event fields and only emits `{"type": "<name>"}`, making the richer events invisible to HTTP consumers.
+2. **No `session_id` propagation** — events don't carry session context.
 
-Because Nexus reads loom's event types directly, any breaking change requires explicit cross-project alignment before code moves.
+This RFC is updated to reflect what's been implemented, what's still missing, and what's obsolete.
 
-## Motivation
+---
+
+## Current loom event taxonomy (v0.3)
+
+| Event type | Fields | Status |
+|---|---|---|
+| `content_delta` | `delta: str` | ✅ Stable |
+| `tool_call_delta` | `index, id?, name?, arguments_delta?` | ✅ Stable |
+| `usage` | `usage: {input_tokens, output_tokens, cache_read_tokens, cache_write_tokens}` | ✅ Stable |
+| `stop` | `stop_reason` | ✅ Stable |
+| `tool_exec_start` | `tool_call_id, name, arguments` | ✅ Since v0.3 — replaces the old "piecewise delta only" gap |
+| `tool_exec_result` | `tool_call_id, name, text, is_error` | ✅ Since v0.3 — replaces the old "no tool result in stream" gap |
+| `limit_reached` | `iterations` | ✅ Since v0.3 |
+| `error` | `message, reason?, status_code?, retryable` | ✅ Since v0.3 |
+| `done` | `context: dict` (carries `model, iterations, input_tokens, output_tokens, tool_calls, messages, limit_reached?`) | ✅ Since v0.3 |
+
+Additionally, `AgentConfig.serialize_event` lets consumers wire a custom serializer to transform loom's Pydantic events into any shape before they leave the agent loop.
+
+---
+
+## Gap analysis: loom events → what consumers actually need
 
 ### Helyx
 
-`ui/src/components/Chat.tsx` consumes events shaped like:
+Helyx's `Chat.tsx` handles these SSE event types:
 
-```ts
-type ChatEvent =
-  | { type: "session", session_id: string }
-  | { type: "delta", text: string }
-  | { type: "tool_call", id: string, name: string, args_json: string }
-  | { type: "tool_result", id: string, text: string, ok: boolean }
-  | { type: "done", session_id: string, stop_reason: string };
-```
+| Helyx event | Loom equivalent | Gap? |
+|---|---|---|
+| `{ type: "session", session_id }` | **No equivalent** | ❌ Loom never emits a session anchor event |
+| `{ type: "delta", text }` | `ContentDeltaEvent(delta=...)` | ⚠️ Field name mismatch: loom uses `delta`, helyx reads `text` |
+| `{ type: "tool_call", name }` | `ToolExecStartEvent(name=...)` | ⚠️ Field name mismatch: loom uses `tool_exec_start` |
+| `{ type: "done", session_id, iterations, activated_skills }` | `DoneEvent(context={...})` | ⚠️ `session_id` not in event; `activated_skills` not in context |
+| `{ type: "error", error }` | `ErrorEvent(message=...)` | ⚠️ Field name mismatch: loom uses `message`, helyx reads `error` |
 
-Loom's current events carry *some* of this but not all — there's no consolidated `done` event with `session_id`, `tool_call` is emitted piecewise via `ToolCallDeltaEvent` (token-at-a-time), and `tool_result` isn't part of the stream in a single event.
-
-Helyx emits its own shape in `server/app.py`, translating loom's events under the hood. ~80 LOC that would be unnecessary if loom's event shape were richer.
+Note: Helyx's own agent loop (`helyx/agent`) translates loom events into helyx's shape before they reach the SSE stream. The gaps above exist in that translation layer.
 
 ### Nexus
 
-Reads `loom.ContentDeltaEvent` and `loom.ToolCallDeltaEvent` directly in `_loom_bridge.py`. Any rename/reshape breaks nexus.
+Nexus's `_loom_bridge.py` consumes these loom types directly:
 
-### Future consumers
+| Loom type | How nexus uses it | Gap? |
+|---|---|---|
+| `ContentDeltaEvent` | `ev.get("text")` — expects a `text` field | ⚠️ Nexus reads `text` but loom's field is `delta` |
+| `ToolCallDeltaEvent` | Assembles tool calls from index-keyed deltas | ✅ Works — nexus handles the piecewise assembly |
+| `UsageEvent` | Translates to `lt.Usage` | ✅ Works |
+| `StopEvent` | Maps `stop_reason` to loom's `StopReason` | ✅ Works |
 
-Without convergence, every new consumer either (a) translates loom's events to their own, or (b) inherits loom's minimal shape and builds a UI around it. (a) means duplicated translation code; (b) means a thinner UX than the ecosystem can support.
+Note: Nexus wraps its own providers to satisfy loom's `LLMProvider` interface — it translates *into* loom events, not *from* them. The `ContentDeltaEvent` field mismatch is handled by the Nexus provider adapter, not by loom.
 
-## Constraints
+---
 
-1. **No silent breaking changes.** Nexus is in production-ish use. If we rename `delta` to `content_delta`, Nexus breaks.
-2. **Additive is safe.** Adding optional fields to existing events and adding new event subclasses doesn't break anyone.
-3. **Consumers should be able to opt in** to richer events via a flag or an alternate endpoint, so migration is per-consumer.
+## What's been implemented (was proposed in original RFC)
 
-## Possible directions
+The original RFC proposed "Direction A — additive enrichment." Most of it has landed:
 
-### Direction A — Additive enrichment
-Add optional fields to existing events and define new events alongside the current ones.
+| Original proposal | Current status |
+|---|---|
+| New `ToolCallStartedEvent` (full spec) | ✅ `ToolExecStartEvent` — emitted before each tool dispatch |
+| New `ToolResultEvent` | ✅ `ToolExecResultEvent` — emitted after each tool execution |
+| New `TurnCompleteEvent` with `session_id, stop_reason, usage` | ⚠️ `DoneEvent` serves this role but uses a freeform `context` dict instead of typed fields |
+| `ContentDeltaEvent` gains optional `session_id`, `turn_id` | ❌ Not implemented |
+| `serialize_event` hook for custom SSE shapes | ✅ `AgentConfig.serialize_event` — reduces need for translation layers |
 
-- `ContentDeltaEvent` gains optional `session_id`, `turn_id`.
-- New `ToolCallStartedEvent` (full spec, not a delta) emitted once per tool call before the per-token deltas.
-- New `ToolResultEvent` (full shape) emitted after tool execution; distinct from `ToolExecResultEvent` (which might be the same thing rebranded — TBD).
-- New `TurnCompleteEvent` with `{session_id, stop_reason, usage}`.
+Events added that weren't in the original RFC:
+- `ErrorEvent` — structured error with `reason`, `status_code`, `retryable`
+- `LimitReachedEvent` — emitted when iteration cap is hit
+- `DoneEvent` — terminal marker with `context` dict
 
-**Pros**: Zero breaking changes. Consumers opt in by listening to the new events.
-**Cons**: Event taxonomy grows; some redundancy with existing deltas.
+---
 
-### Direction B — Versioned shape
-Let consumers request a shape version via an accept header or query param: `/chat/stream?event_schema=v2`.
+## What's still missing
 
-**Pros**: Clean slate at v2 without breaking v1.
-**Cons**: Two code paths in loom; maintenance cost.
+### 1. The SSE route is a skeleton
 
-### Direction C — Full convergence (major version)
-Propose a v1.0 loom event shape and migrate all consumers to it. Deprecate the current shape with a transition window.
+`/chat/stream` in `routes/chat.py` yields `{"type": event.type}` — it strips all event fields. No consumer can use `tool_exec_start`, `tool_exec_result`, `done.context`, or any other enriched payload over SSE.
 
-**Pros**: One canonical shape long-term.
-**Cons**: Breaking change; requires coordinated migration across helyx, nexus, any future consumers.
+**What needs to happen:** The route should serialise the full event (or a curated subset) as SSE `data:` lines. The `serialize_event` hook could serve this role if wired through the server.
 
-## Questions for the group
+### 2. No `session_id` in the event stream
 
-1. Is there appetite to standardize, or is the current "each consumer translates" model acceptable long-term?
-2. If we standardize, A / B / C — which pattern fits the project's stability goals (loom is alpha; breaking changes are cheap *now*, expensive after v1.0)?
-3. What's the minimum set of fields an event consumer needs to render a streaming chat UI correctly? Helyx's shape is one answer. Nexus's implicit shape (from `_loom_bridge.py`) is another. Are they reconcilable into one canonical shape?
-4. Should `done` / `turn_complete` carry `usage` (token counts), or should usage stay on its own `UsageEvent`?
-5. Should session IDs be part of every event (simple, redundant) or only anchor events (`session_started`, `turn_complete`) (clean, but consumers need state)?
+The session ID lives in the route handler but is never injected into events. Every downstream consumer (helyx, any future web UI) needs it to correlate events with the active session.
 
-## Decision gate
+**What needs to happen:** Either:
+- (a) Inject `session_id` into every event via the `serialize_event` hook at the server layer, or
+- (b) Add an optional `session_id: str | None` field to `DoneEvent` and emit a `{ type: "session", session_id }` anchor at the start of the stream.
 
-This RFC blocks on:
+### 3. `DoneEvent` uses a freeform dict
 
-- Input from a nexus maintainer on acceptable migration cost.
-- A concrete audit of helyx's `Chat.tsx` event consumption versus loom's current event types — to produce a gap list.
-- A decision on versioning vs full convergence.
+`DoneEvent.context` is `dict`. Consumers can't rely on specific keys existing. This is fragile for cross-project use.
 
-Once those three are in hand, this RFC gets rewritten as a concrete implementation proposal (or abandoned if consensus is "translation layer per consumer is fine").
+**What needs to happen:** Promote the common keys (`model`, `iterations`, `input_tokens`, `output_tokens`, `tool_calls`) to typed fields on `DoneEvent`, keeping `context` as an escape hatch for extra metadata.
 
-## Action items
+---
 
-- [ ] Share this RFC with nexus maintainers for reaction.
-- [ ] Produce the helyx ↔ loom gap list (what helyx's UI needs that loom doesn't emit).
-- [ ] Produce the nexus ↔ loom contact surface (what events nexus reads and how it transforms them).
-- [ ] Decide on direction A / B / C.
-- [ ] Rewrite this RFC as an implementation proposal.
+## What's obsolete in this RFC
+
+1. **"Tool call emitted piecewise via ToolCallDeltaEvent"** — `ToolExecStartEvent` now provides a full-spec event before the per-token deltas. The piecewise-assembly concern is resolved for consumers that listen to `tool_exec_start`.
+
+2. **"~80 LOC translation layer"** — The `serialize_event` hook in `AgentConfig` lets consumers wire custom serialisation directly into the agent loop, significantly reducing translation code. Helyx still has a translation layer because the SSE route doesn't emit full events yet.
+
+3. **"Direction B — versioned shape"** and **"Direction C — full convergence"** — Direction A (additive enrichment) has been the de facto approach and is working. No need for versioned endpoints or breaking changes.
+
+4. **The "Questions for the group" and "Decision gate" sections** — Most questions are resolved by the current additive approach. The remaining questions are concrete implementation tasks, not design decisions.
+
+---
+
+## Remaining action items
+
+- [ ] **SSE route**: Serialise full event payloads in `/chat/stream` (not just `{"type": ...}`).
+- [ ] **Session anchor**: Emit a `session` event at the start of every stream, or inject `session_id` into `DoneEvent`.
+- [ ] **`DoneEvent` typed fields**: Promote common context keys to typed Pydantic fields.
+- [ ] **Field naming audit**: Document the `delta` vs `text`, `message` vs `error`, `tool_exec_start` vs `tool_call` mismatches between loom and helyx. Decide if loom adds aliases or if the translation layer stays.
+- [ ] Update this RFC status to "implemented" once the SSE route ships.
