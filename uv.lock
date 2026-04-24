@@ -295,15 +295,11 @@ wheels = [
 [[package]]
 name = "ddgs"
 version = "9.14.1"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/NinoCoelho/ddgs?branch=main#d3194a3ab05454e354ac59c3d1ccc0189470e80a" }
 dependencies = [
     { name = "click" },
     { name = "lxml" },
     { name = "primp" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c9/f2/aa1f5af106ea0ef0351d11a2fe05d28618463160137326eeb3073b7d788b/ddgs-9.14.1.tar.gz", hash = "sha256:85b878225a622ba145aff33c0f2f0dceb90d6cfaa291af253021d10cb261a8bb", size = 57157, upload-time = "2026-04-20T12:09:21.313Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4f/a0/c0b568acd6ec819ec94ecfd4eebd00edc855efab06e589ad17d0412ff4ce/ddgs-9.14.1-py3-none-any.whl", hash = "sha256:e6b853be092532add9c0d611c4b121f0b27092de66756401057c2100f6b1ab44", size = 67019, upload-time = "2026-04-20T12:09:19.867Z" },
 ]
 
 [[package]]
@@ -620,7 +616,7 @@ wheels = [
 
 [[package]]
 name = "loom-framework"
-version = "0.2.0"
+version = "0.4.0b1"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
@@ -697,8 +693,8 @@ requires-dist = [
     { name = "botocore", marker = "extra == 'aws'", specifier = ">=1.34" },
     { name = "cryptography", specifier = ">=41" },
     { name = "cryptography", marker = "extra == 'dev'", specifier = ">=41" },
-    { name = "ddgs", marker = "extra == 'dev'", specifier = ">=9.0" },
-    { name = "ddgs", marker = "extra == 'search'", specifier = ">=9.0" },
+    { name = "ddgs", marker = "extra == 'dev'", git = "https://github.com/NinoCoelho/ddgs?branch=main" },
+    { name = "ddgs", marker = "extra == 'search'", git = "https://github.com/NinoCoelho/ddgs?branch=main" },
     { name = "fastapi", specifier = ">=0.111" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "keyring", marker = "extra == 'dev'", specifier = ">=24" },

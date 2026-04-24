@@ -291,20 +291,26 @@ class EntityGraph(SqliteResource):
             for r in rows
         ]
 
-    def subgraph(self, seed_id: int, max_hops: int = 2) -> dict:
+    def subgraph(self, seed_id: int, max_hops: int = 2, max_nodes: int = 200) -> dict:
         visited_ids: set[int] = {seed_id}
         frontier: set[int] = {seed_id}
+        seen_triple_ids: set[int] = set()
         all_triples: list[Triple] = []
 
         for _ in range(max_hops):
             next_frontier: set[int] = set()
             for eid in frontier:
+                if len(visited_ids) >= max_nodes:
+                    break
                 rows = self._db.execute(
                     "SELECT id, head_id, relation, tail_id, chunk_id, description, strength "
                     "FROM triples WHERE head_id = ? OR tail_id = ?",
                     (eid, eid),
                 ).fetchall()
                 for r in rows:
+                    if r[0] in seen_triple_ids:
+                        continue
+                    seen_triple_ids.add(r[0])
                     t = Triple(
                         id=r[0],
                         head_id=r[1],
@@ -314,10 +320,9 @@ class EntityGraph(SqliteResource):
                         description=r[5],
                         strength=r[6],
                     )
-                    if t not in all_triples:
-                        all_triples.append(t)
+                    all_triples.append(t)
                     other = t.tail_id if t.head_id == eid else t.head_id
-                    if other not in visited_ids:
+                    if other not in visited_ids and len(visited_ids) < max_nodes:
                         visited_ids.add(other)
                         next_frontier.add(other)
             frontier = next_frontier
