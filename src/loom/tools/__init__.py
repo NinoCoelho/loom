@@ -11,6 +11,7 @@ Built-in tools include:
 * :class:`EditIdentityTool` — edits SOUL.md, IDENTITY.md, or USER.md files.
 * :class:`BrokerAskUserTool` — human-in-the-loop ask (via :mod:`loom.hitl`).
 * :class:`~loom.tools.ssh.SshCallTool` — SSH command execution.
+* :class:`~loom.tools.ssh_session.SshSessionTool` — persistent tmux-backed remote shells.
 * :class:`~loom.tools.vault.VaultToolHandler` — vault file operations.
 * :class:`~loom.tools.search.WebSearchTool` — multi-provider web search.
 * :class:`~loom.tools.scrape.WebScrapeTool` — web page scraping with format conversion.
