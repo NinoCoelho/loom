@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from loom.loop import Agent
+from loom.server.events import serialize_event
 from loom.server.schemas import ChatReply, ChatRequest
 from loom.store.session import SessionStore
 from loom.types import ChatMessage, Role
@@ -62,18 +63,53 @@ def create_chat_router(agent: Agent, sessions: SessionStore) -> APIRouter:
         history.append(ChatMessage(role=Role.USER, content=req.message))
 
         async def _generate():
+            # Anchor event — lets consumers correlate the stream with a
+            # session immediately, before any content arrives.
+            yield _sse({"type": "session", "session_id": session_id})
+
             content_parts: list[str] = []
-            async for event in await agent.run_turn_stream(
+            skills_activated: list[str] = []
+            total_input = 0
+            total_output = 0
+            total_tool_calls = 0
+
+            async for event in agent.run_turn_stream(
                 history, context=req.context, model_id=req.model
             ):
-                if hasattr(event, "delta") and event.type == "content_delta":
+                # Track content for history persistence.
+                if hasattr(event, "delta") and getattr(event, "type", None) == "content_delta":
                     content_parts.append(event.delta)
-                yield f"data: {json.dumps({'type': event.type})}\n\n"
+
+                # Track skill activations from tool_exec_start.
+                if getattr(event, "type", None) == "tool_exec_start" and hasattr(event, "name"):
+                    if event.name == "activate_skill":
+                        # Parse skill name from arguments.
+                        try:
+                            args = json.loads(event.arguments) if event.arguments else {}
+                            skill_name = args.get("name", "")
+                            if skill_name and skill_name not in skills_activated:
+                                skills_activated.append(skill_name)
+                        except json.JSONDecodeError:
+                            pass
+
+                # Track usage from done event.
+                if getattr(event, "type", None) == "done":
+                    total_input = getattr(event, "input_tokens", 0)
+                    total_output = getattr(event, "output_tokens", 0)
+                    total_tool_calls = getattr(event, "tool_calls", 0)
+
+                yield _sse(serialize_event(event, session_id=session_id))
 
             reply = "".join(content_parts)
             history.append(ChatMessage(role=Role.ASSISTANT, content=reply))
             sessions.replace_history(session_id, history)
+            sessions.bump_usage(session_id, total_input, total_output, total_tool_calls)
 
         return StreamingResponse(_generate(), media_type="text/event-stream")
 
     return router
+
+
+def _sse(data: dict) -> str:
+    """Format a dict as an SSE ``data:`` line."""
+    return f"data: {json.dumps(data)}\n\n"

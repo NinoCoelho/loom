@@ -112,7 +112,10 @@ async def test_stream_ends_with_done_event():
     agent = Agent(provider=provider, tool_registry=ToolRegistry(), config=AgentConfig())
     events = [e async for e in agent.run_turn_stream([ChatMessage(role=Role.USER, content="go")])]
     assert events[-1].type == "done"
-    assert "iterations" in events[-1].context
+    done = events[-1]
+    assert done.iterations >= 1
+    assert done.input_tokens == 3
+    assert done.output_tokens == 1
 
 
 # ── #6 per-call model_id ────────────────────────────────────────────────

@@ -174,12 +174,26 @@ class ErrorEvent(BaseModel):
 
 
 class DoneEvent(BaseModel):
-    """Terminal marker for a streaming turn. Carries a freeform
-    ``context`` bag so embedders can piggyback session-scoped metadata
-    (e.g. sid, routing decisions, token totals) onto the end of a stream
-    without inventing a sidecar channel."""
+    """Terminal marker for a streaming turn.
+
+    Typed fields carry the data every consumer needs (model, token usage,
+    iteration count, stop reason).  The freeform ``context`` dict remains
+    available for extra metadata that doesn't warrant a dedicated field.
+
+    ``context`` is **not** included in the SSE output by default — only
+    the typed fields and ``stop_reason`` are serialised.  Consumers that
+    need ``context`` should access it from the Pydantic model directly.
+    """
 
     type: Literal["done"] = "done"
+    model: str = ""
+    iterations: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    tool_calls: int = 0
+    stop_reason: StopReason | None = None
+    session_id: str | None = None
+    skills_touched: list[str] = []
     context: dict = {}
 
 

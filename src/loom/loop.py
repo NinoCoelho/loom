@@ -596,7 +596,7 @@ class Agent:
                     reason="hook_error",
                 )
                 yield _wrap(err_ev)
-                yield _wrap(DoneEvent(context={"model": model_name, "iterations": iteration}))
+                yield _wrap(DoneEvent(model=model_name, iterations=iteration))
                 return
             all_messages = hooked
 
@@ -624,7 +624,7 @@ class Agent:
                 )
                 self._emit("stream_error", {"phase": "create", "message": str(exc)})
                 yield _wrap(err_ev)
-                yield _wrap(DoneEvent(context={"model": model_name, "iterations": iteration}))
+                yield _wrap(DoneEvent(model=model_name, iterations=iteration))
                 return
 
             try:
@@ -675,11 +675,9 @@ class Agent:
                 yield _wrap(err_ev)
                 yield _wrap(
                     DoneEvent(
-                        context={
-                            "model": model_name,
-                            "iterations": iteration,
-                            "partial": has_forwarded,
-                        }
+                        model=model_name,
+                        iterations=iteration,
+                        context={"partial": has_forwarded},
                     )
                 )
                 return
@@ -705,14 +703,16 @@ class Agent:
                 final_assistant = ChatMessage(role=Role.ASSISTANT, content=reply)
                 yield _wrap(
                     DoneEvent(
+                        model=model_name,
+                        iterations=iteration + 1,
+                        input_tokens=total_input,
+                        output_tokens=total_output,
+                        tool_calls=total_tool_calls,
+                        stop_reason=stop_reason,
+                        skills_touched=skills_touched,
                         context={
-                            "model": model_name,
-                            "iterations": iteration + 1,
-                            "input_tokens": total_input,
-                            "output_tokens": total_output,
-                            "tool_calls": total_tool_calls,
                             "messages": [m.model_dump() for m in all_messages + [final_assistant]],
-                        }
+                        },
                     )
                 )
                 return
@@ -765,14 +765,15 @@ class Agent:
         yield _wrap(LimitReachedEvent(iterations=self._config.max_iterations))
         yield _wrap(
             DoneEvent(
+                model=model_name,
+                iterations=self._config.max_iterations,
+                input_tokens=total_input,
+                output_tokens=total_output,
+                tool_calls=total_tool_calls,
+                skills_touched=skills_touched,
                 context={
-                    "model": model_name,
-                    "iterations": self._config.max_iterations,
-                    "input_tokens": total_input,
-                    "output_tokens": total_output,
-                    "tool_calls": total_tool_calls,
                     "messages": [m.model_dump() for m in all_messages + [final_assistant]],
                     "limit_reached": True,
-                }
+                },
             )
         )
