@@ -462,8 +462,18 @@ class Agent:
     async def _dispatch_tool_result(self, tc: ToolCall) -> tuple[str, bool, list[Any] | None]:
         try:
             args = json.loads(tc.arguments) if tc.arguments else {}
-        except json.JSONDecodeError:
-            args = {}
+        except json.JSONDecodeError as exc:
+            # Surface the parse failure to the model so it can self-correct
+            # on the next iteration instead of silently dispatching with {}
+            # (which loops forever on tools with required fields when the
+            # model emits malformed JSON, e.g. some local llama.cpp builds).
+            return (
+                f"error: tool arguments were not valid JSON ({exc}). "
+                f"Got: {tc.arguments!r}. Retry with a valid JSON object "
+                f"matching the tool schema.",
+                True,
+                None,
+            )
         result = await self._tools.dispatch(tc.name, args)
         if self._config.on_tool_result:
             self._config.on_tool_result(tc, result.to_text())
@@ -488,6 +498,11 @@ class Agent:
         total_input = 0
         total_output = 0
         total_tool_calls = 0
+
+        # See run_turn_stream — same identical-tool-call loop guard.
+        _last_tc_signature: tuple[tuple[str, str], ...] | None = None
+        _identical_tc_streak = 0
+        _IDENTICAL_TC_LIMIT = 3
 
         for iteration in range(self._config.max_iterations):
             hooked, hook_exc = await self._apply_before_llm_hook(all_messages)
@@ -540,12 +555,47 @@ class Agent:
 
             all_messages.append(response.message)
 
+            tc_signature = tuple(
+                (tc.name, tc.arguments) for tc in response.message.tool_calls
+            )
+
+            iter_all_errored = True
             for tc in response.message.tool_calls:
                 total_tool_calls += 1
                 result_text, is_error, tool_content_parts, skills_touched = (
                     await self._handle_tool_call(tc, skills_touched)
                 )
+                if not is_error:
+                    iter_all_errored = False
                 all_messages.append(self._build_tool_message(tc, result_text, tool_content_parts))
+
+            tcs = response.message.tool_calls
+            if iter_all_errored and tcs and tc_signature == _last_tc_signature:
+                _identical_tc_streak += 1
+            elif iter_all_errored and tcs:
+                _identical_tc_streak = 1
+                _last_tc_signature = tc_signature
+            else:
+                _identical_tc_streak = 0
+                _last_tc_signature = tc_signature
+            if _identical_tc_streak >= _IDENTICAL_TC_LIMIT:
+                stuck_reply = (
+                    "[stopped: model repeated the same failing tool call "
+                    f"{_identical_tc_streak} times in a row]"
+                )
+                turn = AgentTurn(
+                    reply=stuck_reply,
+                    iterations=iteration + 1,
+                    skills_touched=skills_touched,
+                    messages=all_messages,
+                    input_tokens=total_input,
+                    output_tokens=total_output,
+                    tool_calls=total_tool_calls,
+                    model=model_name,
+                )
+                if self._config.on_after_turn:
+                    self._config.on_after_turn(turn)
+                return turn
 
         limit_reply = (
             self._config.limit_message_builder(self._config.max_iterations)
@@ -587,6 +637,16 @@ class Agent:
         total_input = 0
         total_output = 0
         total_tool_calls = 0
+
+        # Identical-tool-call loop guard. Some local models (e.g. small
+        # quantized Qwen/Llama via llama.cpp) get stuck emitting the same
+        # tool call with empty/malformed args on every iteration even after
+        # seeing the error result. Track (name, args_str) of the previous
+        # iteration's calls; if the same set repeats N times in a row,
+        # abort with a clear message instead of looping until max_iterations.
+        _last_tc_signature: tuple[tuple[str, str], ...] | None = None
+        _identical_tc_streak = 0
+        _IDENTICAL_TC_LIMIT = 3
 
         for iteration in range(self._config.max_iterations):
             hooked, hook_exc = await self._apply_before_llm_hook(all_messages)
@@ -735,6 +795,9 @@ class Agent:
                 )
             )
 
+            tc_signature = tuple((tc.name, tc.arguments) for tc in assembled_tcs)
+
+            iter_all_errored = True
             for tc in assembled_tcs:
                 total_tool_calls += 1
                 yield _wrap(
@@ -743,6 +806,8 @@ class Agent:
                 result_text, is_error, stream_tool_parts, skills_touched = (
                     await self._handle_tool_call(tc, skills_touched)
                 )
+                if not is_error:
+                    iter_all_errored = False
 
                 yield _wrap(
                     ToolExecResultEvent(
@@ -754,6 +819,43 @@ class Agent:
                 )
 
                 all_messages.append(self._build_tool_message(tc, result_text, stream_tool_parts))
+
+            # Only count as "stuck" when the model emits the same tool calls
+            # AND every one returned an error. A model legitimately iterating
+            # on a successful tool (rare) shouldn't trip this.
+            if iter_all_errored and assembled_tcs and tc_signature == _last_tc_signature:
+                _identical_tc_streak += 1
+            elif iter_all_errored and assembled_tcs:
+                _identical_tc_streak = 1
+                _last_tc_signature = tc_signature
+            else:
+                _identical_tc_streak = 0
+                _last_tc_signature = tc_signature
+            if _identical_tc_streak >= _IDENTICAL_TC_LIMIT:
+                stuck_reply = (
+                    "[stopped: model repeated the same failing tool call "
+                    f"{_identical_tc_streak} times in a row]"
+                )
+                yield _wrap(ContentDeltaEvent(delta=stuck_reply))
+                final_assistant = ChatMessage(role=Role.ASSISTANT, content=stuck_reply)
+                yield _wrap(
+                    DoneEvent(
+                        model=model_name,
+                        iterations=iteration + 1,
+                        input_tokens=total_input,
+                        output_tokens=total_output,
+                        tool_calls=total_tool_calls,
+                        stop_reason=StopReason.STOP,
+                        skills_touched=skills_touched,
+                        context={
+                            "messages": [
+                                m.model_dump() for m in all_messages + [final_assistant]
+                            ],
+                            "stuck_loop": True,
+                        },
+                    )
+                )
+                return
 
         limit_reply = (
             self._config.limit_message_builder(self._config.max_iterations)
