@@ -28,6 +28,7 @@ from loom.prompt import (
 from loom.retry import with_retry
 from loom.skills.registry import SkillRegistry
 from loom.tools.registry import ToolRegistry
+from loom.overflow import check_overflow as _check_overflow
 from loom.types import (
     ChatMessage,
     ChatResponse,
@@ -35,6 +36,7 @@ from loom.types import (
     DoneEvent,
     ErrorEvent,
     LimitReachedEvent,
+    OverflowEvent,
     Role,
     StopReason,
     StreamEvent,
@@ -148,6 +150,11 @@ class AgentConfig:
             [list[ChatMessage]], list[ChatMessage] | Awaitable[list[ChatMessage]]
         ]
         | None = None,
+        context_window: int
+        | Callable[[str], int]
+        | None = None,
+        overflow_output_headroom: int = 4096,
+        estimate_input_tokens: Callable[[list[ChatMessage]], int] | None = None,
     ) -> None:
         self.max_iterations = max_iterations
         self.model = model
@@ -173,6 +180,34 @@ class AgentConfig:
         self.serialize_event = serialize_event
         # #11: rewrite the message list at the top of every loop iteration.
         self.before_llm_call = before_llm_call
+        # #12: pre-LLM-call context-window guard. ``context_window`` is
+        # either a static int (same window for all models) or a callable
+        # that maps model id → window. ``None`` disables the check.
+        # ``overflow_output_headroom`` is reserved for the model output;
+        # the agent treats anything beyond ``window - headroom`` as full.
+        # ``estimate_input_tokens`` lets callers swap in a precise
+        # tokeniser (e.g. tiktoken); defaults to a cheap chars/token
+        # heuristic that handles non-ASCII and JSON-shaped tool results.
+        self.context_window = context_window
+        self.overflow_output_headroom = overflow_output_headroom
+        self.estimate_input_tokens = estimate_input_tokens
+
+    def resolve_context_window(self, model_id: str | None) -> int:
+        """Resolve the configured context window for a specific model id.
+
+        Returns 0 when the check should be skipped (no window configured,
+        or the lookup callable returned 0/None).
+        """
+        cw = self.context_window
+        if cw is None:
+            return 0
+        if callable(cw):
+            try:
+                resolved = cw(model_id or "") or 0
+            except Exception:
+                return 0
+            return int(resolved)
+        return int(cw)
 
 
 class Agent:
@@ -504,6 +539,8 @@ class Agent:
         _identical_tc_streak = 0
         _IDENTICAL_TC_LIMIT = 3
 
+        ctx_window = self._config.resolve_context_window(model_name)
+
         for iteration in range(self._config.max_iterations):
             hooked, hook_exc = await self._apply_before_llm_hook(all_messages)
             if hooked is None:
@@ -521,6 +558,39 @@ class Agent:
                     self._config.on_after_turn(turn)
                 return turn
             all_messages = hooked
+
+            # Pre-LLM-call overflow guard. Mirrors run_turn_stream so the
+            # blocking variant short-circuits the same way.
+            if ctx_window > 0:
+                ov = _check_overflow(
+                    all_messages,
+                    context_window=ctx_window,
+                    output_headroom=self._config.overflow_output_headroom,
+                    estimator=self._config.estimate_input_tokens,
+                )
+                if ov.overflowed:
+                    self._emit(
+                        "context_overflow",
+                        {
+                            "iteration": iteration,
+                            "estimated_input_tokens": ov.estimated_input_tokens,
+                            "context_window": ov.context_window,
+                            "headroom": ov.headroom,
+                        },
+                    )
+                    turn = AgentTurn(
+                        reply=ov.detail or "context overflow",
+                        iterations=iteration,
+                        skills_touched=skills_touched,
+                        messages=all_messages,
+                        input_tokens=total_input,
+                        output_tokens=total_output,
+                        tool_calls=total_tool_calls,
+                        model=model_name,
+                    )
+                    if self._config.on_after_turn:
+                        self._config.on_after_turn(turn)
+                    return turn
 
             response: ChatResponse = await self._call_llm(
                 provider, all_messages, tools, upstream_model
@@ -648,6 +718,8 @@ class Agent:
         _identical_tc_streak = 0
         _IDENTICAL_TC_LIMIT = 3
 
+        ctx_window = self._config.resolve_context_window(model_name)
+
         for iteration in range(self._config.max_iterations):
             hooked, hook_exc = await self._apply_before_llm_hook(all_messages)
             if hooked is None:
@@ -659,6 +731,53 @@ class Agent:
                 yield _wrap(DoneEvent(model=model_name, iterations=iteration))
                 return
             all_messages = hooked
+
+            # Pre-LLM-call context-window guard. Some providers (z.ai GLM,
+            # Qwen-style endpoints) silently return 200 + empty content when
+            # the prompt overflows; the loop would then burn iterations on
+            # nothing. Refuse the call up front with a structured event.
+            if ctx_window > 0:
+                ov = _check_overflow(
+                    all_messages,
+                    context_window=ctx_window,
+                    output_headroom=self._config.overflow_output_headroom,
+                    estimator=self._config.estimate_input_tokens,
+                )
+                if ov.overflowed:
+                    self._emit(
+                        "context_overflow",
+                        {
+                            "iteration": iteration,
+                            "estimated_input_tokens": ov.estimated_input_tokens,
+                            "context_window": ov.context_window,
+                            "headroom": ov.headroom,
+                        },
+                    )
+                    yield _wrap(
+                        OverflowEvent(
+                            message=ov.detail or "context overflow",
+                            estimated_input_tokens=ov.estimated_input_tokens,
+                            context_window=ov.context_window,
+                            headroom=ov.headroom,
+                            iteration=iteration,
+                        )
+                    )
+                    yield _wrap(
+                        DoneEvent(
+                            model=model_name,
+                            iterations=iteration,
+                            input_tokens=total_input,
+                            output_tokens=total_output,
+                            tool_calls=total_tool_calls,
+                            stop_reason=StopReason.STOP,
+                            skills_touched=skills_touched,
+                            context={
+                                "messages": [m.model_dump() for m in all_messages],
+                                "context_overflow": True,
+                            },
+                        )
+                    )
+                    return
 
             content_parts: list[str] = []
             tool_call_parts: dict[int, dict[str, Any]] = {}

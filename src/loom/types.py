@@ -173,6 +173,26 @@ class ErrorEvent(BaseModel):
     retryable: bool = False
 
 
+class OverflowEvent(BaseModel):
+    """Emitted when the agent loop refuses an LLM call because the prompt
+    would exceed the model's context window.
+
+    Distinct from ``ErrorEvent``: this is a predictable, preventable
+    condition with structured info (estimated tokens, window) so callers
+    can offer a "compact history" affordance instead of a generic retry.
+
+    Always followed by a ``DoneEvent`` so consumers can tear down the
+    same way they would for a normal completion.
+    """
+
+    type: Literal["context_overflow"] = "context_overflow"
+    message: str
+    estimated_input_tokens: int
+    context_window: int
+    headroom: int
+    iteration: int
+
+
 class DoneEvent(BaseModel):
     """Terminal marker for a streaming turn.
 
@@ -206,6 +226,7 @@ StreamEvent = (
     ToolExecResultEvent,
     LimitReachedEvent,
     ErrorEvent,
+    OverflowEvent,
     DoneEvent,
 )
 """Union type for all events yielded by :meth:`LLMProvider.chat_stream`.
