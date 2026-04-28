@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS entities (
     type TEXT,
     canonical TEXT NOT NULL,
     description TEXT DEFAULT '',
+    degree INTEGER NOT NULL DEFAULT 0,
     UNIQUE(canonical, type)
 );
 
@@ -82,7 +83,30 @@ class EntityGraph(SqliteResource):
         self._db = self._init_db(db_path)
         self._db.execute("PRAGMA foreign_keys=ON")
         self._db.executescript(_SCHEMA)
+        self._migrate_degree_column()
         self._db.commit()
+
+    def _migrate_degree_column(self) -> None:
+        """Backfill ``entities.degree`` on databases created before the
+        column existed. Idempotent: no-op once the column + index are in
+        place. Without the denormalised count, ``list_entities``'s
+        ``ORDER BY`` falls back to a correlated subquery that scales O(N²)."""
+        cols = [r[1] for r in self._db.execute("PRAGMA table_info(entities)").fetchall()]
+        if "degree" not in cols:
+            self._db.execute(
+                "ALTER TABLE entities ADD COLUMN degree INTEGER NOT NULL DEFAULT 0"
+            )
+            self._db.execute(
+                "UPDATE entities SET degree = ("
+                "  SELECT COUNT(*) FROM triples t "
+                "  WHERE t.head_id = entities.id OR t.tail_id = entities.id"
+                ")"
+            )
+        # Index lives outside _SCHEMA because CREATE INDEX would fire
+        # before the migration adds the column on legacy databases.
+        self._db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entities_degree ON entities(degree DESC)"
+        )
 
 
 
@@ -147,12 +171,21 @@ class EntityGraph(SqliteResource):
         description: str = "",
         strength: float = 5.0,
     ) -> None:
-        self._db.execute(
+        cur = self._db.execute(
             "INSERT OR IGNORE INTO triples "
             "(head_id, relation, tail_id, chunk_id, description, strength) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (head_id, relation, tail_id, chunk_id, description, strength),
         )
+        # Bump denormalised degree only when a new row was actually inserted
+        # (UNIQUE conflicts on the same chunk-mention return rowcount=0).
+        # ``id IN (h, t)`` dedupes self-loops to one update — same as the
+        # original ``COUNT(*) WHERE head_id=? OR tail_id=?`` semantics.
+        if cur.rowcount > 0:
+            self._db.execute(
+                "UPDATE entities SET degree = degree + 1 WHERE id IN (?, ?)",
+                (head_id, tail_id),
+            )
         self._db.commit()
 
     def add_mention(self, entity_id: int, chunk_id: str) -> None:
@@ -215,6 +248,16 @@ class EntityGraph(SqliteResource):
         if not chunk_ids:
             return
         placeholders = ",".join("?" for _ in chunk_ids)
+        # Snapshot endpoints of triples about to be deleted so we can refresh
+        # their denormalised degree afterward. Cheaper than rebuilding all
+        # entities' degrees (which is O(N²) at scale).
+        affected_rows = self._db.execute(
+            f"SELECT DISTINCT head_id FROM triples WHERE chunk_id IN ({placeholders}) "
+            f"UNION SELECT DISTINCT tail_id FROM triples WHERE chunk_id IN ({placeholders})",
+            chunk_ids + chunk_ids,
+        ).fetchall()
+        affected_ids = [r[0] for r in affected_rows]
+
         self._db.execute(
             f"DELETE FROM entity_mentions WHERE chunk_id IN ({placeholders})",
             chunk_ids,
@@ -228,6 +271,15 @@ class EntityGraph(SqliteResource):
             "(SELECT head_id FROM triples UNION SELECT tail_id FROM triples) "
             "AND id NOT IN (SELECT entity_id FROM entity_mentions)"
         )
+        if affected_ids:
+            ph = ",".join("?" for _ in affected_ids)
+            self._db.execute(
+                f"UPDATE entities SET degree = ("
+                f"  SELECT COUNT(*) FROM triples t "
+                f"  WHERE t.head_id = entities.id OR t.tail_id = entities.id"
+                f") WHERE id IN ({ph})",
+                affected_ids,
+            )
         self._db.commit()
 
     def remove_for_source(self, source: str, chunk_ids: list[str]) -> None:
@@ -261,10 +313,7 @@ class EntityGraph(SqliteResource):
             f"SELECT e.id, e.name, e.type, e.canonical, e.description "
             f"FROM entities e"
             f"{where} "
-            f"ORDER BY ("
-            f"  SELECT COUNT(*) FROM triples t "
-            f"  WHERE t.head_id = e.id OR t.tail_id = e.id"
-            f") DESC "
+            f"ORDER BY e.degree DESC "
             f"LIMIT ? OFFSET ?",
             params + [limit, offset],
         ).fetchall()
@@ -291,7 +340,20 @@ class EntityGraph(SqliteResource):
             for r in rows
         ]
 
-    def subgraph(self, seed_id: int, max_hops: int = 2, max_nodes: int = 200) -> dict:
+    def subgraph(
+        self,
+        seed_id: int,
+        max_hops: int = 2,
+        max_nodes: int = 200,
+        max_neighbors_per_node: int = 50,
+    ) -> dict:
+        """BFS expansion of a seed entity's neighbourhood.
+
+        ``max_neighbors_per_node`` caps how many triples a single hub
+        contributes per visit — without it, exploring a 5000-edge hub like
+        "Microsoft" pulls every triple even though only ``max_nodes`` are
+        ever returned. Strongest triples win (``ORDER BY strength DESC``).
+        """
         visited_ids: set[int] = {seed_id}
         frontier: set[int] = {seed_id}
         seen_triple_ids: set[int] = set()
@@ -304,8 +366,9 @@ class EntityGraph(SqliteResource):
                     break
                 rows = self._db.execute(
                     "SELECT id, head_id, relation, tail_id, chunk_id, description, strength "
-                    "FROM triples WHERE head_id = ? OR tail_id = ?",
-                    (eid, eid),
+                    "FROM triples WHERE head_id = ? OR tail_id = ? "
+                    "ORDER BY strength DESC LIMIT ?",
+                    (eid, eid, max_neighbors_per_node),
                 ).fetchall()
                 for r in rows:
                     if r[0] in seen_triple_ids:
@@ -373,8 +436,8 @@ class EntityGraph(SqliteResource):
 
     def entity_degree(self, entity_id: int) -> int:
         row = self._db.execute(
-            "SELECT COUNT(*) FROM triples WHERE head_id = ? OR tail_id = ?",
-            (entity_id, entity_id),
+            "SELECT degree FROM entities WHERE id = ?",
+            (entity_id,),
         ).fetchone()
         return row[0] if row else 0
 

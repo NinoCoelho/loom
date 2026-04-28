@@ -12,19 +12,27 @@ Extract entities and relationships from the following text.
 Entity types to look for: {entity_types}
 
 For each entity provide:
-- name: the canonical name, capitalized
+- name: the canonical name, capitalized. MUST be a single line of plain
+  text, ≤ 60 characters. Must NOT contain newlines, pipes (|), markdown
+  link syntax (](), URLs, code, table rows, mermaid field declarations
+  (e.g. "int pk PK"), or list bullets. If the source mentions an entity
+  inside a code block, table, or URL, extract a clean human-readable
+  name only — do not include the surrounding syntax. If you cannot
+  produce a clean name, omit the entity.
 - type: one of the entity types above
-- description: brief description based on context
+- description: brief description based on context (≤ 1 sentence)
 
 For relationships use one of these relation types when they fit: {core_relations}
 Otherwise use the relation type that best describes the relationship and set "custom" to true.
 
 For each relationship provide:
-- head: name of the source entity
-- relation: the relation type
-- tail: name of the target entity
+- head: name of the source entity (same constraints as entity name)
+- relation: the relation type (snake_case, ≤ 30 chars, no spaces or punctuation)
+- tail: name of the target entity (same constraints as entity name)
 - description: natural language description of the relationship
 - strength: integer 1-10 indicating relationship strength
+
+Skip any entity or relationship you are not confident in. Quality over quantity.
 
 Text:
 {text}

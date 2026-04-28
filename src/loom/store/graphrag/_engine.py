@@ -25,6 +25,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,36 @@ from loom.store.graphrag._types import (
 from loom.store.vector import VectorStore
 
 logger = logging.getLogger(__name__)
+
+_NAME_MAX_LEN = 80
+_NAME_REJECT_SUBSTRINGS = ("](", "://", "```")
+_NAME_MERMAID_TOKENS = re.compile(r"\b(?:PK|FK|pk|fk)\b")
+_NAME_HAS_LETTER = re.compile(r"[A-Za-zÀ-ÿ]")
+
+
+def _sanitize_entity_name(raw: str) -> str | None:
+    """Return a cleaned entity name, or ``None`` if it should be rejected.
+
+    Rejects multi-line names, markdown table/link/URL fragments, mermaid
+    field declarations, and over-long or letter-less strings. The LLM
+    extractor is the trust boundary here: garbage that lands in the DB
+    becomes orphan nodes and noisy edges in the knowledge graph.
+    """
+    if not raw:
+        return None
+    s = raw.strip()
+    s = s.strip("*_`> -")
+    if not s or len(s) > _NAME_MAX_LEN or len(s) < 2:
+        return None
+    if any(c in s for c in "\n\r\t|"):
+        return None
+    if any(sub in s for sub in _NAME_REJECT_SUBSTRINGS):
+        return None
+    if not _NAME_HAS_LETTER.search(s):
+        return None
+    if _NAME_MERMAID_TOKENS.search(s):
+        return None
+    return s
 
 
 class GraphRAGEngine(SqliteResource):
@@ -229,7 +260,7 @@ class GraphRAGEngine(SqliteResource):
         entity_name_to_id: dict[str, int] = {}
 
         for ent in parsed.get("entities", []):
-            name = ent.get("name", "").strip()
+            name = _sanitize_entity_name(ent.get("name", ""))
             etype = ent.get("type", "concept").strip().lower()
             if not name:
                 continue
@@ -244,8 +275,8 @@ class GraphRAGEngine(SqliteResource):
             self._entity_graph.add_mention(eid, chunk_id)
 
         for rel in parsed.get("relations", []):
-            head = rel.get("head", "").strip()
-            tail = rel.get("tail", "").strip()
+            head = _sanitize_entity_name(rel.get("head", ""))
+            tail = _sanitize_entity_name(rel.get("tail", ""))
             relation = rel.get("relation", "related_to").strip()
             desc = rel.get("description", "").strip()
             strength = float(rel.get("strength", 5))
@@ -399,21 +430,23 @@ class GraphRAGEngine(SqliteResource):
                             "degree": degree,
                         }
                     )
-            seen_triple_ids: set[int] = set()
+            # Dedupe by (head, relation, tail) — same logical edge can
+            # appear in multiple chunk-rows. Keep highest strength.
+            edge_map: dict[tuple[int, str, int], dict] = {}
             for eid in all_entity_ids:
                 for t in self._entity_graph.get_entity_triples(eid):
-                    if t.id in seen_triple_ids:
+                    if t.head_id not in all_entity_ids or t.tail_id not in all_entity_ids:
                         continue
-                    seen_triple_ids.add(t.id)
-                    if t.head_id in all_entity_ids and t.tail_id in all_entity_ids:
-                        subgraph_edges.append(
-                            {
-                                "source": t.head_id,
-                                "target": t.tail_id,
-                                "relation": t.relation,
-                                "strength": t.strength,
-                            }
-                        )
+                    key = (t.head_id, t.relation, t.tail_id)
+                    existing = edge_map.get(key)
+                    if existing is None or t.strength > existing["strength"]:
+                        edge_map[key] = {
+                            "source": t.head_id,
+                            "target": t.tail_id,
+                            "relation": t.relation,
+                            "strength": t.strength,
+                        }
+            subgraph_edges.extend(edge_map.values())
 
         return EnrichedRetrieval(
             results=results,
