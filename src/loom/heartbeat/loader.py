@@ -22,6 +22,8 @@ def load_heartbeat(heartbeat_dir: Path) -> HeartbeatRecord:
     """Load a heartbeat from a directory containing HEARTBEAT.md and driver.py."""
     hb_md = heartbeat_dir / "HEARTBEAT.md"
     driver_py = heartbeat_dir / "driver.py"
+    if not driver_py.is_file():
+        driver_py = heartbeat_dir / "driver.pyc"
 
     if not hb_md.exists():
         raise FileNotFoundError(f"HEARTBEAT.md not found in {heartbeat_dir}")
