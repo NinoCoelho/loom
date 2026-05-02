@@ -188,3 +188,39 @@ class TestCosineSimilarity:
         from loom.store.embeddings import _cosine_similarity
 
         assert _cosine_similarity([0.0, 0.0], [1.0, 0.0]) == 0.0
+
+
+class TestBatchCosine:
+    """Regressions for mixed-dim vector indexes (e.g. embedding-model swap)."""
+
+    def test_uniform_dimensions(self):
+        from loom.store.embeddings import _batch_cosine
+
+        scores = _batch_cosine([1.0, 0.0], [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0]])
+        assert scores[0] == 1.0
+        assert abs(scores[1]) < 1e-6
+        assert scores[2] == 1.0
+
+    def test_mixed_dimensions_score_zero(self):
+        from loom.store.embeddings import _batch_cosine
+
+        # Second vector has wrong dim — must score 0 instead of raising.
+        scores = _batch_cosine(
+            [1.0, 0.0],
+            [[1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0]],
+        )
+        assert len(scores) == 3
+        assert scores[0] == 1.0
+        assert scores[1] == 0.0
+        assert abs(scores[2]) < 1e-6
+
+    def test_empty_input(self):
+        from loom.store.embeddings import _batch_cosine
+
+        assert _batch_cosine([1.0, 0.0], []) == []
+
+    def test_all_mismatched(self):
+        from loom.store.embeddings import _batch_cosine
+
+        scores = _batch_cosine([1.0, 0.0], [[1.0, 0.0, 0.0], [1.0]])
+        assert scores == [0.0, 0.0]

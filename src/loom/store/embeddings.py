@@ -38,19 +38,53 @@ try:
     import numpy as np
 
     def _batch_cosine(query: list[float], vectors: list[list[float]]) -> list[float]:
+        """Cosine similarity of ``query`` against each row in ``vectors``.
+
+        Defensive against mismatched dimensions — caused by mixed embedding
+        models in the same index (e.g. switching providers without
+        re-indexing). Vectors whose length differs from the query score
+        0.0 instead of raising NumPy's "inhomogeneous shape" error.
+        Output order matches input order so callers can zip with their
+        ``ids`` list.
+        """
         if not vectors:
             return []
-        q = np.array(query, dtype=np.float32)
-        v = np.array(vectors, dtype=np.float32)
-        dots = v @ q
-        mags = np.linalg.norm(v, axis=1) * np.linalg.norm(q)
-        mags = np.where(mags == 0, 1.0, mags)
-        return (dots / mags).tolist()
+        qlen = len(query)
+        # Fast path: every vector matches the query dimension.
+        if all(len(v) == qlen for v in vectors):
+            q = np.array(query, dtype=np.float32)
+            mat = np.array(vectors, dtype=np.float32)
+            dots = mat @ q
+            mags = np.linalg.norm(mat, axis=1) * np.linalg.norm(q)
+            mags = np.where(mags == 0, 1.0, mags)
+            return (dots / mags).tolist()
+        # Slow path: skip mismatched vectors, score the rest, preserve order.
+        good_idx: list[int] = []
+        good_vecs: list[list[float]] = []
+        for i, v in enumerate(vectors):
+            if len(v) == qlen:
+                good_idx.append(i)
+                good_vecs.append(v)
+        scores = [0.0] * len(vectors)
+        if good_vecs:
+            q = np.array(query, dtype=np.float32)
+            mat = np.array(good_vecs, dtype=np.float32)
+            dots = mat @ q
+            mags = np.linalg.norm(mat, axis=1) * np.linalg.norm(q)
+            mags = np.where(mags == 0, 1.0, mags)
+            good_scores = (dots / mags).tolist()
+            for idx, sc in zip(good_idx, good_scores):
+                scores[idx] = sc
+        return scores
 
 except ImportError:
 
     def _batch_cosine(query: list[float], vectors: list[list[float]]) -> list[float]:
-        return [_cosine_similarity(query, v) for v in vectors]
+        qlen = len(query)
+        return [
+            _cosine_similarity(query, v) if len(v) == qlen else 0.0
+            for v in vectors
+        ]
 
 
 class OllamaEmbeddingProvider:
