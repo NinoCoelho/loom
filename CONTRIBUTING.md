@@ -16,7 +16,7 @@ pip install -e ".[dev,anthropic]"
 
 ```
 loom/
-  src/loom/          -- Framework source
+  src/loom/          -- AI Harness Framework source
     acp/             -- Agent Communication Protocol (WebSocket + Ed25519)
     config/          -- Configuration management
     hitl/            -- Human-in-the-Loop broker (web/SSE)

@@ -5,7 +5,7 @@
 <h1 align="center">Loom</h1>
 
 <p align="center">
-  <strong>The composable Python framework for building agentic applications.</strong>
+  <strong>The composable AI harness framework for building agentic applications.</strong>
 </p>
 
 <p align="center">
@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  Loom is a composable Python framework for building agentic applications — with a security model that actually holds. Credentials live in encrypted stores and are resolved into transport-ready material through an applier pipeline; the agent never touches secret bytes. Human-in-the-loop is a structural primitive, not a callback. Skills are loaded on demand to keep context clean. Recurring tasks run through stateless, event-driven drivers. No decorators, no base classes, no global state — just components you wire together.
+  Loom is a composable AI harness framework for building agentic applications — with a security model that actually holds. Credentials live in encrypted stores and are resolved into transport-ready material through an applier pipeline; the agent never touches secret bytes. Human-in-the-loop is a structural primitive, not a callback. Skills are loaded on demand to keep context clean. Recurring tasks run through stateless, event-driven drivers. No decorators, no base classes, no global state — just components you wire together.
 </p>
 
 ---
@@ -358,7 +358,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation and [do
 
 ## Why Loom?
 
-Most agent frameworks solve the "run a loop and call tools" problem. Loom does that too, but the design choices that matter are the ones that come up when you move past demos:
+Most agent harness frameworks solve the "run a loop and call tools" problem. Loom does that too, but the design choices that matter are the ones that come up when you move past demos:
 
 **Credentials that stay secret — by design.**
 Secrets live in an encrypted store (or OS keychain). The agent never touches them. A resolver pipeline converts them into transport-ready headers, SSH connection args, or AWS signatures via typed appliers — and an optional policy layer (`NOTIFY_BEFORE`, `ONE_SHOT`, `TIME_BOXED`) gates each use through a HITL approval before the secret is released. This isn't bolted on. It's structural.
@@ -375,7 +375,7 @@ Skills are Markdown files. The agent sees only names and descriptions in the sys
 **Composition, not convention.**
 There are no base classes to inherit, no decorators, no global registries. You construct components, configure them, and wire them together. The framework owns the loop; everything else is yours.
 
-**Honest about what it isn't — yet.** Loom is early alpha. The primitives are solid; the ecosystem is not. If you're looking for 200 pre-built integrations, look elsewhere. If you want a framework whose security model you can actually audit and extend, this is the one.
+**Honest about what it isn't — yet.** Loom is early alpha. The primitives are solid; the ecosystem is not. If you're looking for 200 pre-built integrations, look elsewhere. If you want an AI harness framework whose security model you can actually audit and extend, this is the one.
 
 ---
 

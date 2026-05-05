@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "loom-framework"
 version = "0.4.0b1"
-description = "A reusable agentic framework with tool calling, skills, streaming, HITL, and multi-provider support"
+description = "A composable AI harness framework for building agentic applications — tools, skills, streaming, HITL, and multi-provider support"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [{ name = "Loom Contributors" }]
-keywords = ["agent", "llm", "ai", "framework", "tools", "skills"]
+keywords = ["agent", "llm", "ai", "harness", "framework", "tools", "skills"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

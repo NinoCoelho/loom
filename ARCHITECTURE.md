@@ -2,9 +2,9 @@
 
 ## Overview
 
-Loom is a Python framework for building agentic applications. It provides the core infrastructure that any agent needs: an iterative LLM loop, tool calling, skill management, streaming, human-in-the-loop approvals, and multi-provider support.
+Loom is a Python AI harness framework for building agentic applications. It provides the core infrastructure that any agent needs: an iterative LLM loop, tool calling, skill management, streaming, human-in-the-loop approvals, and multi-provider support.
 
-The framework is designed around **composition over inheritance**. Apps create components, configure them, and wire them together. The framework doesn't dictate your domain model.
+The harness is designed around **composition over inheritance**. Apps create components, configure them, and wire them together. The framework doesn't dictate your domain model — you harness it to your needs.
 
 ## Core Concepts
 
