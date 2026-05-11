@@ -9,6 +9,12 @@ Security posture:
   * Always asks the user by default — no silent exec.
   * ``asyncio.create_subprocess_shell`` with a required timeout;
     processes that exceed it are terminated, not left orphaned.
+  * ``start_new_session=True`` ensures child processes share a process
+    group so ``os.killpg`` kills the entire tree (no orphaned grandchildren).
+  * ``CancelledError`` from user-initiated turn cancellation kills the
+    process group and returns partial output.
+  * Optional ``on_output`` callback streams stdout/stderr chunks as they
+    arrive so the host can forward them to a live UI.
   * Output truncation on each stream (stdout/stderr) keeps the
     tool-result envelope bounded.
 """
@@ -18,7 +24,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from collections.abc import Callable
+import signal
+import subprocess
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,7 +38,6 @@ _DEFAULT_TIMEOUT_SECONDS = 60
 _MAX_TIMEOUT_SECONDS = 600
 _DEFAULT_STREAM_CHAR_LIMIT = 4000  # stdout + stderr each, so ~8KB envelope
 _APPROVAL_TIMEOUT_SECONDS = 300
-
 
 TERMINAL_TOOL_SPEC = ToolSpec(
     name="terminal",
@@ -106,6 +113,34 @@ class TerminalResult:
         )
 
 
+def kill_proc_group(proc: asyncio.subprocess.Process) -> None:
+    """Terminate the process group of *proc* (SIGTERM → grace → SIGKILL).
+
+    Safe to call from any thread — catches ``ProcessLookupError`` and
+    ``PermissionError`` so the caller never needs to handle them.
+    """
+    if proc.returncode is not None:
+        return
+    pid = proc.pid
+    if pid is None:
+        return
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
+
+
 class TerminalTool(ToolHandler):
     """Shell-with-approval tool wired through a :class:`HitlBroker`.
 
@@ -122,6 +157,9 @@ class TerminalTool(ToolHandler):
         max_timeout: float = _MAX_TIMEOUT_SECONDS,
         stream_char_limit: int = _DEFAULT_STREAM_CHAR_LIMIT,
         approval_timeout: int = _APPROVAL_TIMEOUT_SECONDS,
+        on_output: Callable[[str, str], Awaitable[None]] | None = None,
+        proc_register: Callable[[asyncio.subprocess.Process], None] | None = None,
+        proc_unregister: Callable[[], None] | None = None,
     ) -> None:
         self._broker = broker
         self._yolo = yolo_getter or (lambda: False)
@@ -129,6 +167,9 @@ class TerminalTool(ToolHandler):
         self._max_timeout = max_timeout
         self._stream_char_limit = stream_char_limit
         self._approval_timeout = approval_timeout
+        self._on_output = on_output
+        self._proc_register = proc_register
+        self._proc_unregister = proc_unregister
 
     @property
     def tool(self) -> ToolSpec:
@@ -197,6 +238,9 @@ class TerminalTool(ToolHandler):
             cwd=cwd,
             timeout=timeout,
             stream_char_limit=self._stream_char_limit,
+            on_output=self._on_output,
+            proc_register=self._proc_register,
+            proc_unregister=self._proc_unregister,
         )
 
 
@@ -215,6 +259,9 @@ async def _run_command(
     cwd: str | None,
     timeout: float,
     stream_char_limit: int,
+    on_output: Callable[[str, str], Awaitable[None]] | None = None,
+    proc_register: Callable[[asyncio.subprocess.Process], None] | None = None,
+    proc_unregister: Callable[[], None] | None = None,
 ) -> TerminalResult:
     start = asyncio.get_running_loop().time()
     try:
@@ -223,39 +270,115 @@ async def _run_command(
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
     except OSError as exc:
         return _error(f"failed to launch subprocess: {exc}")
 
+    if proc_register is not None:
+        proc_register(proc)
+
     timed_out = False
+    cancelled = False
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout
-        )
+        if on_output is not None:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                _stream_output(proc, on_output),
+                timeout=timeout,
+            )
+        else:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=timeout,
+            )
     except TimeoutError:
         timed_out = True
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-        stdout_bytes, stderr_bytes = await proc.communicate()
+        kill_proc_group(proc)
+        stdout_bytes, stderr_bytes = await _drain(proc)
+    except asyncio.CancelledError:
+        cancelled = True
+        kill_proc_group(proc)
+        stdout_bytes, stderr_bytes = await _drain(proc)
+    finally:
+        if proc_unregister is not None:
+            proc_unregister()
 
     duration_ms = int((asyncio.get_running_loop().time() - start) * 1000)
     stdout, stdout_truncated = _truncate_stream(stdout_bytes, stream_char_limit)
     stderr, stderr_truncated = _truncate_stream(stderr_bytes, stream_char_limit)
 
-    return TerminalResult(
-        ok=not timed_out and (proc.returncode == 0),
+    result = TerminalResult(
+        ok=not timed_out and not cancelled and (proc.returncode == 0),
         exit_code=proc.returncode,
         stdout=stdout,
         stderr=stderr,
         stdout_truncated=stdout_truncated,
         stderr_truncated=stderr_truncated,
         duration_ms=duration_ms,
-        timed_out=timed_out,
+        timed_out=timed_out or cancelled,
         denied=False,
-        error=None if not timed_out else "command timed out",
+        error=(
+            "command killed by user" if cancelled
+            else "command timed out" if timed_out
+            else None
+        ),
     )
+
+    if cancelled:
+        raise asyncio.CancelledError(result.to_text())
+
+    return result
+
+
+async def _stream_output(
+    proc: asyncio.subprocess.Process,
+    on_output: Callable[[str, str], Awaitable[None]],
+) -> tuple[bytes, bytes]:
+    """Read stdout/stderr line-by-line, forwarding each chunk via *on_output*.
+
+    Returns the full accumulated ``(stdout_bytes, stderr_bytes)`` when the
+    process exits.
+    """
+    stdout_chunks: list[bytes] = []
+    stderr_chunks: list[bytes] = []
+
+    async def _read_stdout() -> None:
+        if proc.stdout is None:
+            return
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            stdout_chunks.append(line)
+            try:
+                await on_output(line.decode("utf-8", errors="replace"), "")
+            except Exception:
+                pass
+
+    async def _read_stderr() -> None:
+        if proc.stderr is None:
+            return
+        while True:
+            line = await proc.stderr.readline()
+            if not line:
+                break
+            stderr_chunks.append(line)
+            try:
+                await on_output("", line.decode("utf-8", errors="replace"))
+            except Exception:
+                pass
+
+    await asyncio.gather(_read_stdout(), _read_stderr())
+    await proc.wait()
+    return b"".join(stdout_chunks), b"".join(stderr_chunks)
+
+
+async def _drain(proc: asyncio.subprocess.Process) -> tuple[bytes, bytes]:
+    """Best-effort drain of remaining process output after kill."""
+    try:
+        return await asyncio.wait_for(proc.communicate(), timeout=5)
+    except (TimeoutError, asyncio.CancelledError):
+        return b"", b""
 
 
 def _truncate_stream(raw: bytes | None, limit: int) -> tuple[str, bool]:
@@ -282,4 +405,4 @@ def _error(message: str) -> TerminalResult:
     )
 
 
-__all__ = ["TerminalTool", "TerminalResult", "TERMINAL_TOOL_SPEC"]
+__all__ = ["TerminalTool", "TerminalResult", "TERMINAL_TOOL_SPEC", "kill_proc_group"]
