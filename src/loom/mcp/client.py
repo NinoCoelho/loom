@@ -60,12 +60,32 @@ class McpClient:
                 env=cfg.env or None,
             )
             self._transport_cm = stdio_client(params)
+        elif cfg.transport == "streamable-http":
+            if not cfg.url:
+                raise ValueError(
+                    f"MCP server '{cfg.name}' requires 'url' for streamable-http transport"
+                )
+            try:
+                from mcp.client.streamable_http import streamablehttp_client
+            except ImportError as exc:
+                raise ImportError(
+                    "Streamable HTTP transport requires mcp >= 1.2. "
+                    "Upgrade with: pip install 'loom[mcp]'"
+                ) from exc
+            self._transport_cm = streamablehttp_client(
+                cfg.url, headers=cfg.headers or None,
+            )
         else:
             if not cfg.url:
                 raise ValueError(f"MCP server '{cfg.name}' requires 'url' for sse transport")
             self._transport_cm = sse_client(cfg.url, headers=cfg.headers or None)
 
-        read, write = await self._transport_cm.__aenter__()
+        transport_result = await self._transport_cm.__aenter__()
+        # streamable-http may return 3 values (read, write, session_info_fn)
+        if isinstance(transport_result, tuple):
+            read, write = transport_result[0], transport_result[1]
+        else:
+            read, write = transport_result
         self._session = ClientSession(read, write)
         await self._session.__aenter__()
         await self._session.initialize()
@@ -83,7 +103,7 @@ class McpClient:
         if self._session is None:
             raise RuntimeError("McpClient is not open — use it as an async context manager")
 
-    async def list_tools(self) -> list[McpToolHandler]:
+    async def list_tools(self, *, namespace: str | None = None) -> list[McpToolHandler]:
         """Discover tools from the server and return them as ToolHandlers."""
         self._assert_open()
         result = await self._session.list_tools()
@@ -98,6 +118,7 @@ class McpClient:
                     description=tool.description or "",
                     input_schema=schema,
                     call_fn=self.call_tool,
+                    namespace=namespace,
                 )
             )
         return handlers
@@ -130,6 +151,39 @@ class McpClient:
             is_error=bool(result.isError),
             content_parts=content_parts or None,
         )
+
+    async def list_resources(self) -> list[dict[str, Any]]:
+        """Discover resources exposed by the server."""
+        self._assert_open()
+        result = await self._session.list_resources()
+        out: list[dict[str, Any]] = []
+        for res in result.resources:
+            entry: dict[str, Any] = {"uri": str(res.uri), "name": res.name}
+            if getattr(res, "description", None):
+                entry["description"] = res.description
+            if getattr(res, "mimeType", None):
+                entry["mimeType"] = res.mimeType
+            out.append(entry)
+        return out
+
+    async def read_resource(self, uri: str) -> str:
+        """Read a resource by URI and return its text content."""
+        self._assert_open()
+        result = await self._session.read_resource(uri)
+        parts: list[str] = []
+        for content in result.contents:
+            if hasattr(content, "text") and content.text is not None:
+                parts.append(content.text)
+            elif hasattr(content, "blob") and content.blob is not None:
+                import base64
+                parts.append(base64.b64decode(content.blob).decode("utf-8", errors="replace"))
+            else:
+                parts.append(str(content))
+        return "\n".join(parts)
+
+    async def refresh_tools(self, *, namespace: str | None = None) -> list[McpToolHandler]:
+        """Re-discover tools — convenience wrapper for re-calling list_tools."""
+        return await self.list_tools(namespace=namespace)
 
 
 _MIME_EXT_MAP: dict[str, str] = {

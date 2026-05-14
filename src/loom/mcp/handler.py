@@ -19,6 +19,12 @@ class McpToolHandler(ToolHandler):
 
     The call_fn is provided by McpClient so that the handler remains
     decoupled from transport details and avoids circular imports.
+
+    When *namespace* is provided the tool's public name becomes
+    ``{namespace}__{name}`` while :meth:`invoke` still sends the
+    original name to the MCP server.  This lets multiple MCP servers
+    expose tools with the same base name without colliding in the
+    ToolRegistry.
     """
 
     def __init__(
@@ -27,17 +33,30 @@ class McpToolHandler(ToolHandler):
         description: str,
         input_schema: dict,
         call_fn: Callable[[str, dict], Awaitable[ToolResult]],
+        *,
+        namespace: str | None = None,
     ) -> None:
+        self._original_name = name
+        self._namespace = namespace
+        prefixed = f"{namespace}__{name}" if namespace else name
         self._spec = ToolSpec(
-            name=name,
+            name=prefixed,
             description=description,
             parameters=input_schema,
         )
         self._call_fn = call_fn
 
     @property
+    def original_name(self) -> str:
+        return self._original_name
+
+    @property
+    def namespace(self) -> str | None:
+        return self._namespace
+
+    @property
     def tool(self) -> ToolSpec:
         return self._spec
 
     async def invoke(self, args: dict) -> ToolResult:
-        return await self._call_fn(self._spec.name, args)
+        return await self._call_fn(self._original_name, args)

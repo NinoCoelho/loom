@@ -340,20 +340,29 @@ ACP enables agents to call external agents over WebSocket with Ed25519 authentic
 MCP (Model Context Protocol) client integration -- connect to external MCP servers and register their tools with a Loom `ToolRegistry`. Optional subpackage (requires `pip install "loom[mcp]"`).
 
 **McpServerConfig** -- Pydantic model describing one server:
-- `transport: "stdio" | "sse"`
+- `transport: "stdio" | "sse" | "streamable-http"`
 - stdio: `command: list[str]`, `env: dict`
-- sse: `url: str`, `headers: dict`
+- sse / streamable-http: `url: str`, `headers: dict`
 
 **McpClient** -- async context manager that owns the session lifecycle:
-- `__aenter__` launches the subprocess (stdio) or opens SSE, then calls `initialize()`
-- `list_tools()` discovers remote tools via `tools/list` and returns `McpToolHandler` instances
+- `__aenter__` launches the subprocess (stdio) or opens the HTTP transport (sse / streamable-http), then calls `initialize()`
+- `list_tools(namespace=)` discovers remote tools via `tools/list` and returns `McpToolHandler` instances with optional namespace prefix
 - `call_tool(name, args)` proxies to `tools/call`, returning a `ToolResult` with optional `content_parts` for native image forwarding
+- `list_resources()` discovers server resources via `resources/list`
+- `read_resource(uri)` reads a resource by URI via `resources/read`
+- `refresh_tools()` re-discovers tools (useful after notification of changes)
 
 When an MCP server returns `ImageContent` blocks, the client saves them to temporary files and returns `ImagePart` references in `ToolResult.content_parts`. The agent loop then constructs multimodal tool-result messages, forwarding images natively to the model instead of embedding raw base64 as text.
 
-**McpToolHandler** -- a `ToolHandler` wrapping one remote MCP tool. Constructed with a `call_fn` callable (bound to the parent `McpClient.call_tool`) to avoid circular coupling.
+**McpToolHandler** -- a `ToolHandler` wrapping one remote MCP tool. Constructed with a `call_fn` callable (bound to the parent `McpClient.call_tool`) to avoid circular coupling. Supports optional `namespace` -- the public tool name becomes `{namespace}__{name}` while `invoke` sends the original name to the MCP server.
 
-**Lifecycle:** the `McpClient` context manager must stay open while tools are in use -- register the handlers inside the `async with` block.
+**McpManager** -- manages multiple `McpClient` instances as a single unit:
+- Connects all configured servers on `__aenter__`; failed connections are logged but don't block others
+- `all_tool_handlers()` returns every tool from every connected server, namespaced by server name
+- `reconnect(name)` / `disconnect(name)` for per-server lifecycle control
+- `server_statuses()` returns connection state for each configured server
+
+**Lifecycle:** the context manager (`McpClient` or `McpManager`) must stay open while tools are in use -- register the handlers inside the `async with` block.
 
 ### 15. HITL Broker (`loom.hitl`)
 
