@@ -90,6 +90,48 @@ class McpManager:
                 logger.exception("[mcp] failed to list tools from %r", name)
         return handlers
 
+    async def all_resource_specs(self) -> list[dict[str, Any]]:
+        """Return every resource from every connected server."""
+        resources: list[dict[str, Any]] = []
+        for name, client in self._clients.items():
+            try:
+                server_resources = await client.list_resources()
+                for r in server_resources:
+                    r["_server"] = name
+                resources.extend(server_resources)
+            except Exception:
+                logger.exception("[mcp] failed to list resources from %r", name)
+        return resources
+
+    async def all_prompt_specs(self) -> list[dict[str, Any]]:
+        """Return every prompt template from every connected server."""
+        prompts: list[dict[str, Any]] = []
+        for name, client in self._clients.items():
+            try:
+                server_prompts = await client.list_prompts()
+                for p in server_prompts:
+                    p["_server"] = name
+                prompts.extend(server_prompts)
+            except Exception:
+                logger.exception("[mcp] failed to list prompts from %r", name)
+        return prompts
+
+    async def read_resource(self, server_name: str, uri: str) -> str:
+        """Read a resource from a specific server."""
+        client = self._clients.get(server_name)
+        if client is None:
+            raise ValueError(f"MCP server {server_name!r} is not connected")
+        return await client.read_resource(uri)
+
+    async def get_prompt(
+        self, server_name: str, prompt_name: str, args: dict[str, str] | None = None,
+    ) -> str:
+        """Render a prompt template from a specific server."""
+        client = self._clients.get(server_name)
+        if client is None:
+            raise ValueError(f"MCP server {server_name!r} is not connected")
+        return await client.get_prompt(prompt_name, args)
+
     async def refresh_tools(self, server_name: str) -> list[McpToolHandler]:
         """Re-discover tools from a specific server."""
         client = self._clients.get(server_name)

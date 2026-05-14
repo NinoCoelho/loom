@@ -185,6 +185,65 @@ class McpClient:
         """Re-discover tools — convenience wrapper for re-calling list_tools."""
         return await self.list_tools(namespace=namespace)
 
+    async def list_prompts(self) -> list[dict[str, Any]]:
+        """Discover prompt templates exposed by the server."""
+        self._assert_open()
+        result = await self._session.list_prompts()
+        out: list[dict[str, Any]] = []
+        for p in result.prompts:
+            entry: dict[str, Any] = {"name": p.name}
+            if getattr(p, "description", None):
+                entry["description"] = p.description
+            if getattr(p, "arguments", None):
+                entry["arguments"] = [
+                    {
+                        "name": a.name,
+                        "description": getattr(a, "description", ""),
+                        "required": getattr(a, "required", False),
+                    }
+                    for a in p.arguments
+                ]
+            out.append(entry)
+        return out
+
+    async def get_prompt(self, name: str, args: dict[str, str] | None = None) -> str:
+        """Render a prompt template and return its text content."""
+        self._assert_open()
+        result = await self._session.get_prompt(name, arguments=args)
+        parts: list[str] = []
+        for msg in result.messages:
+            content = getattr(msg, "content", None)
+            if content is None:
+                continue
+            if hasattr(content, "text"):
+                parts.append(content.text)
+            else:
+                parts.append(str(content))
+        return "\n\n".join(parts)
+
+    def resource_as_tool_spec(
+        self, resource: dict[str, Any], *, namespace: str | None = None,
+    ) -> tuple[str, str, dict]:
+        """Build a (name, description, inputSchema) tuple for a resource.
+
+        Used to expose MCP resources as read-only tools in the ToolRegistry.
+        """
+        uri = resource.get("uri", "")
+        name = uri.rsplit("/", 1)[-1] if "/" in uri else uri
+        prefixed = f"{namespace}__resource__{name}" if namespace else f"resource__{name}"
+        desc = resource.get("description", f"Read resource: {uri}")
+        schema: dict[str, Any] = {
+            "type": "object",
+            "properties": {
+                "uri": {
+                    "type": "string",
+                    "description": f"Resource URI (default: {uri})",
+                    "default": uri,
+                },
+            },
+        }
+        return prefixed, desc, schema
+
 
 _MIME_EXT_MAP: dict[str, str] = {
     "image/png": ".png",
