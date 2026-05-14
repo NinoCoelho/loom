@@ -31,6 +31,7 @@ class ToolSpec(BaseModel):
     name: str
     description: str
     parameters: dict
+    meta: dict | None = None
 
 
 class Usage(BaseModel):

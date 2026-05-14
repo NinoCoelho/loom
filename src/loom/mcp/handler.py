@@ -35,14 +35,17 @@ class McpToolHandler(ToolHandler):
         call_fn: Callable[[str, dict], Awaitable[ToolResult]],
         *,
         namespace: str | None = None,
+        meta: dict | None = None,
     ) -> None:
         self._original_name = name
         self._namespace = namespace
+        self._meta = meta
         prefixed = f"{namespace}__{name}" if namespace else name
         self._spec = ToolSpec(
             name=prefixed,
             description=description,
             parameters=input_schema,
+            meta=meta,
         )
         self._call_fn = call_fn
 
@@ -53,6 +56,10 @@ class McpToolHandler(ToolHandler):
     @property
     def namespace(self) -> str | None:
         return self._namespace
+
+    @property
+    def meta(self) -> dict | None:
+        return self._meta
 
     @property
     def tool(self) -> ToolSpec:

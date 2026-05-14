@@ -119,6 +119,7 @@ class McpClient:
                     input_schema=schema,
                     call_fn=self.call_tool,
                     namespace=namespace,
+                    meta=tool.meta,
                 )
             )
         return handlers
