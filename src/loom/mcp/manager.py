@@ -19,6 +19,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,6 +28,10 @@ from loom.mcp.config import McpServerConfig
 from loom.mcp.handler import McpToolHandler
 
 logger = logging.getLogger(__name__)
+
+# Type aliases for callback signatures.
+SamplingFn = Callable[..., Awaitable[str]]
+ElicitationFn = Callable[[str, dict], Awaitable[dict | None]]
 
 
 @dataclass
@@ -46,10 +51,14 @@ class McpManager:
         configs: list[McpServerConfig],
         *,
         namespace_prefix: str | None = None,
+        sampling_fn: SamplingFn | None = None,
+        elicitation_fn: ElicitationFn | None = None,
     ) -> None:
         self._configs: dict[str, McpServerConfig] = {c.name: c for c in configs}
         self._clients: dict[str, McpClient] = {}
         self._namespace_prefix = namespace_prefix
+        self._sampling_fn = sampling_fn
+        self._elicitation_fn = elicitation_fn
 
     async def __aenter__(self) -> McpManager:
         for name, config in self._configs.items():
@@ -188,3 +197,19 @@ class McpManager:
 
     def is_connected(self, name: str) -> bool:
         return name in self._clients
+
+    @property
+    def sampling_fn(self) -> SamplingFn | None:
+        return self._sampling_fn
+
+    @sampling_fn.setter
+    def sampling_fn(self, fn: SamplingFn | None) -> None:
+        self._sampling_fn = fn
+
+    @property
+    def elicitation_fn(self) -> ElicitationFn | None:
+        return self._elicitation_fn
+
+    @elicitation_fn.setter
+    def elicitation_fn(self, fn: ElicitationFn | None) -> None:
+        self._elicitation_fn = fn
