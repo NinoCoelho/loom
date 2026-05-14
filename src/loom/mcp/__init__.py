@@ -38,10 +38,12 @@ from loom.mcp.client import McpClient
 from loom.mcp.config import McpServerConfig
 from loom.mcp.handler import McpToolHandler
 from loom.mcp.manager import McpManager
+from loom.mcp.server_bridge import McpServerBridge
 
 __all__ = [
     "McpClient",
     "McpManager",
+    "McpServerBridge",
     "McpServerConfig",
     "McpToolHandler",
 ]
