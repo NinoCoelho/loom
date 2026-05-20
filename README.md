@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0" /></a>
+  <a href="https://mariadb.com/bsl11/"><img src="https://img.shields.io/badge/license-BSL--1.1-blue.svg" alt="License: BSL-1.1" /></a>
   <img src="https://img.shields.io/badge/python-3.12%2B-blue.svg" alt="Python 3.12+" />
   <img src="https://img.shields.io/badge/status-alpha-orange.svg" alt="Status: Alpha" />
 </p>
@@ -415,4 +415,4 @@ ruff format src/
 
 ## License
 
-Apache License 2.0
+Business Source License 1.1
