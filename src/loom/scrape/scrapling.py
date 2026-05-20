@@ -122,6 +122,25 @@ def _html_to_markdown(html: str) -> str:
     return text.strip()
 
 
+def _trafilatura_extract(html: str) -> str | None:
+    """Extract main article text from HTML using trafilatura.
+
+    Returns ``None`` if trafilatura is not installed or cannot extract
+    content (e.g. non-article pages), allowing the caller to fall back
+    to a generic extractor.
+    """
+    try:
+        import trafilatura
+    except ImportError:
+        return None
+    return trafilatura.extract(
+        html,
+        include_comments=False,
+        include_tables=True,
+        output_format="text",
+    )
+
+
 class ScraplingProvider:
     """Scrape provider backed by the Scrapling library.
 
@@ -136,7 +155,7 @@ class ScraplingProvider:
         cookie_store: CookieStore | None = None,
         headless: bool = True,
         timeout: int = 30,
-        max_content_bytes: int = 102400,
+        max_content_bytes: int = 20480,
     ) -> None:
         """Configure fetcher mode, cookie store, headless flag, timeout, and max content size."""
         if mode not in ("auto", "fetcher", "dynamic", "stealthy"):
@@ -158,6 +177,7 @@ class ScraplingProvider:
         output_format: str = "text",
         css_selector: str | None = None,
         xpath: str | None = None,
+        max_content_chars: int | None = None,
     ) -> ScrapeResult:
         """Fetch URL, detect blocks/auth, retry with cookies, convert
         to the requested format."""
@@ -193,20 +213,26 @@ class ScraplingProvider:
             result.content = _extract_by_selector(html_content, css_selector, xpath)
             result.content_type = "text"
         elif output_format != "html":
-            try:
-                from scrapling.parser import Selector
-            except ImportError:
-                pass
-            else:
-                sel = Selector(html_content)
-                if output_format == "text":
-                    result.content = sel.get_all_text()
+            if output_format == "text":
+                extracted = _trafilatura_extract(html_content)
+                if extracted is not None:
+                    result.content = extracted
                     result.content_type = "text"
-                elif output_format == "markdown":
-                    result.content = _html_to_markdown(html_content)
-                    result.content_type = "markdown"
+                else:
+                    try:
+                        from scrapling.parser import Selector
+                    except ImportError:
+                        pass
+                    else:
+                        sel = Selector(html_content)
+                        result.content = sel.get_all_text()
+                        result.content_type = "text"
+            elif output_format == "markdown":
+                result.content = _html_to_markdown(html_content)
+                result.content_type = "markdown"
 
-        result.content, _ = truncate_text(result.content, self._max_content_bytes)
+        effective_limit = max_content_chars if max_content_chars is not None else self._max_content_bytes
+        result.content, _ = truncate_text(result.content, effective_limit)
 
         return result
 

@@ -24,13 +24,14 @@ class WebScrapeTool(ToolHandler):
     @property
     def tool(self) -> ToolSpec:
         """Tool spec: ``web_scrape`` with ``url``, ``output_format``,
-        ``css_selector``, and ``xpath`` parameters."""
+        ``css_selector``, ``xpath``, and ``max_content_chars`` parameters."""
         return ToolSpec(
             name="web_scrape",
             description=(
                 "Scrape a web page and extract its content. "
                 "Supports text, markdown, and HTML output formats. "
-                "Use css_selector or xpath to extract specific elements."
+                "Use css_selector or xpath to extract specific elements. "
+                "Use max_content_chars to limit response size (default: 20480)."
             ),
             parameters={
                 "type": "object",
@@ -52,6 +53,13 @@ class WebScrapeTool(ToolHandler):
                         "type": "string",
                         "description": "XPath expression to extract specific elements",
                     },
+                    "max_content_chars": {
+                        "type": "integer",
+                        "description": (
+                            "Max characters to return. Overrides the default limit. "
+                            "Use smaller values (e.g. 5000) for research to keep context lean."
+                        ),
+                    },
                 },
                 "required": ["url"],
             },
@@ -66,6 +74,7 @@ class WebScrapeTool(ToolHandler):
         output_format = args.get("output_format", "text")
         css_selector = args.get("css_selector")
         xpath = args.get("xpath")
+        max_content_chars = args.get("max_content_chars")
 
         try:
             result = await self._provider.scrape(
@@ -73,6 +82,7 @@ class WebScrapeTool(ToolHandler):
                 output_format=output_format,
                 css_selector=css_selector,
                 xpath=xpath,
+                max_content_chars=max_content_chars,
             )
         except ScrapeProviderError as exc:
             return ToolResult(text=f"Scrape error: {exc}", is_error=True)
@@ -95,7 +105,7 @@ class WebScrapeTool(ToolHandler):
         cookie_store: CookieStore | None = None,
         headless: bool = True,
         timeout: int = 30,
-        max_content_bytes: int = 102400,
+        max_content_bytes: int = 20480,
     ) -> WebScrapeTool:
         """Factory that creates a
         :class:`~loom.scrape.scrapling.ScraplingProvider`."""
