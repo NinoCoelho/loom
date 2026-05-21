@@ -20,6 +20,14 @@ from loom.tools.utils import truncate_text
 
 logger = logging.getLogger(__name__)
 
+_FETCH_BUFFER_BYTES = 512 * 1024
+_QUALITY_GATE_MIN_HTML_BYTES = 10_240
+_QUALITY_GATE_MIN_RATIO = 0.05
+_NO_CONTENT_MESSAGE = (
+    "Scrape returned no usable content (page may require JavaScript rendering "
+    "or is behind a paywall). URL: {url}"
+)
+
 _BLOCK_PATTERNS = re.compile(
     r"cf-challenge|checking your browser|please wait"
     r"|are you a robot|cf-browser-verification"
@@ -122,7 +130,7 @@ def _html_to_markdown(html: str) -> str:
     return text.strip()
 
 
-def _trafilatura_extract(html: str) -> str | None:
+def _trafilatura_extract(html: str, output_format: str = "text") -> str | None:
     """Extract main article text from HTML using trafilatura.
 
     Returns ``None`` if trafilatura is not installed or cannot extract
@@ -133,12 +141,26 @@ def _trafilatura_extract(html: str) -> str | None:
         import trafilatura
     except ImportError:
         return None
+    fmt = output_format if output_format in ("text", "markdown") else "text"
     return trafilatura.extract(
         html,
         include_comments=False,
         include_tables=True,
-        output_format="text",
+        output_format=fmt,
     )
+
+
+def _looks_like_low_content(extracted: str, raw_html: str) -> bool:
+    """Return True when extracted text is suspiciously small relative to raw HTML.
+
+    If the raw HTML is large but extracted content is tiny, the page is likely
+    JS-rendered, paywalled, or otherwise not extracting real article text.
+    """
+    if len(raw_html) < _QUALITY_GATE_MIN_HTML_BYTES:
+        return False
+    if not extracted:
+        return True
+    return len(extracted) / len(raw_html) < _QUALITY_GATE_MIN_RATIO
 
 
 class ScraplingProvider:
@@ -228,10 +250,24 @@ class ScraplingProvider:
                         result.content = sel.get_all_text()
                         result.content_type = "text"
             elif output_format == "markdown":
-                result.content = _html_to_markdown(html_content)
-                result.content_type = "markdown"
+                extracted = _trafilatura_extract(html_content, output_format="markdown")
+                if extracted is not None:
+                    result.content = extracted
+                    result.content_type = "markdown"
+                else:
+                    result.content = _html_to_markdown(html_content)
+                    result.content_type = "markdown"
 
         effective_limit = max_content_chars if max_content_chars is not None else self._max_content_bytes
+        if output_format != "html" and not (css_selector or xpath):
+            if _looks_like_low_content(result.content, html_content):
+                logger.info(
+                    "Quality gate: extracted %d bytes from %d bytes of HTML for %s",
+                    len(result.content), len(html_content), url,
+                )
+                result.content = _NO_CONTENT_MESSAGE.format(url=url)
+                result.content_type = "text"
+                return result
         result.content, _ = truncate_text(result.content, effective_limit)
 
         return result
@@ -320,7 +356,7 @@ class ScraplingProvider:
                 else page.cookies
             )
 
-        content, _ = truncate_text(content, self._max_content_bytes)
+        content, _ = truncate_text(content, _FETCH_BUFFER_BYTES)
 
         return ScrapeResult(
             url=url,
