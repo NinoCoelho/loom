@@ -115,19 +115,24 @@ def check_overflow(
     *,
     context_window: int,
     output_headroom: int = 4096,
+    tools_overhead: int = 0,
     estimator: "Callable[[Iterable[Any]], int] | None" = None,  # type: ignore[name-defined]
 ) -> OverflowCheck:
     """Return an OverflowCheck describing whether ``messages`` likely fits.
 
     ``context_window <= 0`` disables the check (caller hasn't configured a
-    limit). ``estimator`` lets callers swap in a precise tokenizer when one
-    is available; defaults to the cheap chars/token heuristic.
+    limit). ``tools_overhead`` accounts for tool JSON Schema definitions sent
+    as a separate ``tools`` API parameter (not counted in message tokens but
+    consuming context budget). ``estimator`` lets callers swap in a precise
+    tokenizer when one is available; defaults to the cheap chars/token heuristic.
     """
     estimate = estimator or estimate_input_tokens
     est = estimate(messages)
     if context_window <= 0:
         return OverflowCheck(False, est, 0, 0)
-    budget = context_window - output_headroom
+    budget = context_window - output_headroom - tools_overhead
+    if budget < 0:
+        budget = 0
     if est <= budget:
         return OverflowCheck(False, est, context_window, output_headroom)
     pct = est * 100 // max(1, context_window)

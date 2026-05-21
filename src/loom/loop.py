@@ -154,6 +154,7 @@ class AgentConfig:
         | Callable[[str], int]
         | None = None,
         overflow_output_headroom: int = 4096,
+        overflow_tools_overhead: int = 0,
         estimate_input_tokens: Callable[[list[ChatMessage]], int] | None = None,
     ) -> None:
         self.max_iterations = max_iterations
@@ -190,6 +191,7 @@ class AgentConfig:
         # heuristic that handles non-ASCII and JSON-shaped tool results.
         self.context_window = context_window
         self.overflow_output_headroom = overflow_output_headroom
+        self.overflow_tools_overhead = overflow_tools_overhead
         self.estimate_input_tokens = estimate_input_tokens
 
     def resolve_context_window(self, model_id: str | None) -> int:
@@ -566,6 +568,7 @@ class Agent:
                     all_messages,
                     context_window=ctx_window,
                     output_headroom=self._config.overflow_output_headroom,
+                    tools_overhead=self._config.overflow_tools_overhead,
                     estimator=self._config.estimate_input_tokens,
                 )
                 if ov.overflowed:
@@ -741,6 +744,7 @@ class Agent:
                     all_messages,
                     context_window=ctx_window,
                     output_headroom=self._config.overflow_output_headroom,
+                    tools_overhead=self._config.overflow_tools_overhead,
                     estimator=self._config.estimate_input_tokens,
                 )
                 if ov.overflowed:
