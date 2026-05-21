@@ -23,9 +23,16 @@ logger = logging.getLogger(__name__)
 _FETCH_BUFFER_BYTES = 512 * 1024
 _QUALITY_GATE_MIN_HTML_BYTES = 10_240
 _QUALITY_GATE_MIN_RATIO = 0.05
+_QUALITY_GATE_MAX_LINK_DENSITY = 0.6
 _NO_CONTENT_MESSAGE = (
     "Scrape returned no usable content (page may require JavaScript rendering "
     "or is behind a paywall). URL: {url}"
+)
+
+_NAV_LINK_PATTERN = re.compile(
+    r"\[https?://[^\]]*\]\([^)]*\)"
+    r"|\[javascript:[^\]]*\]\([^)]*\)",
+    re.IGNORECASE,
 )
 
 _BLOCK_PATTERNS = re.compile(
@@ -151,16 +158,28 @@ def _trafilatura_extract(html: str, output_format: str = "text") -> str | None:
 
 
 def _looks_like_low_content(extracted: str, raw_html: str) -> bool:
-    """Return True when extracted text is suspiciously small relative to raw HTML.
+    """Return True when extracted text is likely garbage.
 
-    If the raw HTML is large but extracted content is tiny, the page is likely
-    JS-rendered, paywalled, or otherwise not extracting real article text.
+    Two checks:
+    1. Ratio check: extracted < 5% of raw HTML → JS-rendered or empty.
+    2. Link-density check: in the first 4KB of extracted text, if >60% of
+       non-whitespace characters belong to markdown links like
+       ``[text](url)``, the extraction is mostly navigation boilerplate.
     """
     if len(raw_html) < _QUALITY_GATE_MIN_HTML_BYTES:
         return False
     if not extracted:
         return True
-    return len(extracted) / len(raw_html) < _QUALITY_GATE_MIN_RATIO
+    if len(extracted) / len(raw_html) < _QUALITY_GATE_MIN_RATIO:
+        return True
+    sample = extracted[:4096]
+    links = _NAV_LINK_PATTERN.findall(sample)
+    if links:
+        link_chars = sum(len(m) for m in links)
+        non_ws = sum(1 for c in sample if not c.isspace())
+        if non_ws > 0 and link_chars / non_ws > _QUALITY_GATE_MAX_LINK_DENSITY:
+            return True
+    return False
 
 
 class ScraplingProvider:
