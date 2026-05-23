@@ -128,7 +128,10 @@ async def test_web_scrape_tool_returns_content():
         def name(self):
             return "stub"
 
-        async def scrape(self, url, output_format="text", css_selector=None, xpath=None):
+        async def scrape(
+            self, url, output_format="text", css_selector=None, xpath=None,
+            max_content_chars=None,
+        ):
             return ScrapeResult(
                 url=url,
                 content="Hello World",

@@ -35,7 +35,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from loom.hitil.broker import CURRENT_SESSION_ID, TIMEOUT_SENTINEL, HitlBroker
+from loom.hitl.broker import CURRENT_SESSION_ID, TIMEOUT_SENTINEL, HitlBroker
 from loom.tools.base import ToolHandler, ToolResult
 from loom.types import ToolSpec
 
@@ -121,7 +121,7 @@ class TerminalResult:
         )
 
 
-def kill_proc_group(proc: asyncio.subprocess.Process) -> None:
+async def kill_proc_group(proc: asyncio.subprocess.Process) -> None:
     """Terminate the process group of *proc* (SIGTERM → grace → SIGKILL).
 
     Safe to call from any thread — catches ``ProcessLookupError`` and
@@ -137,15 +137,15 @@ def kill_proc_group(proc: asyncio.subprocess.Process) -> None:
     except (ProcessLookupError, PermissionError, OSError):
         pass
     try:
-        proc.wait(timeout=3)
-    except subprocess.TimeoutExpired:
+        await asyncio.wait_for(proc.wait(), timeout=3)
+    except (TimeoutError, asyncio.TimeoutError):
         try:
             os.killpg(pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError, OSError):
             pass
         try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
+            await asyncio.wait_for(proc.wait(), timeout=2)
+        except (TimeoutError, asyncio.TimeoutError):
             pass
 
 
@@ -324,11 +324,11 @@ async def _run_command(
             )
     except TimeoutError:
         timed_out = True
-        kill_proc_group(proc)
+        await kill_proc_group(proc)
         stdout_bytes, stderr_bytes = await _drain(proc)
     except asyncio.CancelledError:
         cancelled = True
-        kill_proc_group(proc)
+        await kill_proc_group(proc)
         stdout_bytes, stderr_bytes = await _drain(proc)
     finally:
         if proc_unregister is not None:

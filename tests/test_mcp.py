@@ -21,6 +21,7 @@ def _make_tool_stub(name: str, description: str, schema: dict) -> MagicMock:
     t.name = name
     t.description = description
     t.inputSchema = schema
+    t.meta = None
     return t
 
 
