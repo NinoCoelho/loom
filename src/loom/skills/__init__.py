@@ -21,6 +21,7 @@ from loom.skills.guard import SkillGuard
 from loom.skills.loader import load_skill
 from loom.skills.manager import SkillManager
 from loom.skills.registry import SkillRegistry
+from loom.skills.tool import SkillToolHandler
 from loom.skills.types import (
     ACTIVATE_TOOL_SPEC,
     LIST_TOOL_SPEC,
@@ -40,5 +41,6 @@ __all__ = [
     "SkillGuard",
     "SkillRegistry",
     "SkillManager",
+    "SkillToolHandler",
     "load_skill",
 ]

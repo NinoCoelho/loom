@@ -112,6 +112,24 @@ class HeartbeatStore:
             for r in rows
         ]
 
+    def list_runs_for_heartbeat(self, heartbeat_id: str) -> list[HeartbeatRunRecord]:
+        rows = self._db.execute(
+            "SELECT heartbeat_id, instance_id, state, last_check, last_fired, last_error "
+            "FROM heartbeat_state WHERE heartbeat_id=? ORDER BY instance_id",
+            (heartbeat_id,),
+        ).fetchall()
+        return [
+            HeartbeatRunRecord(
+                heartbeat_id=r[0],
+                instance_id=r[1],
+                state=json.loads(r[2]),
+                last_check=_from_ts(r[3]),
+                last_fired=_from_ts(r[4]),
+                last_error=r[5],
+            )
+            for r in rows
+        ]
+
     def delete(self, heartbeat_id: str, instance_id: str = "default") -> None:
         self._db.execute(
             "DELETE FROM heartbeat_state WHERE heartbeat_id=? AND instance_id=?",

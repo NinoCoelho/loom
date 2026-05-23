@@ -85,6 +85,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `loom.mcp` subpackage: MCP (Model Context Protocol) client integration. `McpServerConfig`, `McpClient` (async context manager for stdio/SSE transports), and `McpToolHandler` let agents register and call tools exposed by external MCP servers.
 - New optional extra: `pip install "loom[mcp]"` (depends on the official `mcp` SDK).
 
+### Changed
+
+- **Class decomposition refactoring.** Eight large classes were decomposed into focused sub-modules behind an unchanged public API (facade pattern). All imports, constructor signatures, and public methods remain identical. No behavioral changes.
+
+  | Class | Decomposed into | Key benefit |
+  |---|---|---|
+  | `Agent` | `Agent` (facade) + `TurnExecutor` + `TurnState` | Eliminated duplication between `run_turn` and `run_turn_stream`; `Agent` is now reentrant (per-call `TurnState`) |
+  | `MemoryStore` | `MemoryStore` (facade) + `StorageBackend` protocol + `FileStorageBackend` + `VaultStorageBackend` + `MemorySearchEngine` + `MemorySchema` | Eliminated 11 `if self._vault_backend is not None` branches via Strategy pattern |
+  | `AgentRuntime` | `AgentRuntime` + `AgentRecord` + `AgentFactory` | Consolidated 6 parallel dicts into 1 typed `AgentRecord`, eliminating sync bugs |
+  | `GraphRAGEngine` | `GraphRAGEngine` (facade) + `GraphRAGIndexer` + `GraphRAGExtractor` + `GraphRAGRetriever` | Pipeline stages independently testable |
+  | `EntityGraph` | `EntityGraph` (facade) + `EntityRepository` + `TripleRepository` + `GraphQueries` | Write operations separated from read-only graph traversal |
+  | `SshSessionTool` | `SshSessionTool` (dispatcher) + `SshConnectionPool` + `TmuxManager` | Connection lifecycle separated from tmux management; shared `_classify_error` de-duplicated |
+  | `SkillManager` | `SkillManager` (disk CRUD) + `SkillToolHandler` (tool dispatch) | Disk operations separated from tool invocation |
+  | `HeartbeatManager` | `HeartbeatManager` (disk CRUD) + `HeartbeatToolHandler` (strengthened) | Disk operations separated from tool invocation; fixed N+1 query in listing |
+
+- `SkillManager` CRUD methods renamed from private to public: `_create` → `create`, `_edit` → `edit`, `_patch` → `patch`, `_delete` → `delete`, `_write_file` → `write_file`, `_remove_file` → `remove_file`. The `invoke` method was removed; use `SkillToolHandler` for tool dispatch.
+
+- `HeartbeatManager` CRUD methods renamed from private to public: `_create` → `create`, `_delete` → `delete`, `_enable` → `enable`, `_disable` → `disable`, `_list` → `list_heartbeats`. The `invoke` method was removed; use `HeartbeatToolHandler` for tool dispatch.
+
+- `HeartbeatStore` gained `list_runs_for_heartbeat(heartbeat_id)` for efficient filtered queries.
+
+- New public types: `TurnState`, `TurnExecutor`, `TurnDeps`, `AgentRecord`, `AgentFactory`, `StorageBackend`, `FileStorageBackend`, `MemorySearchEngine`, `MemorySchema`, `GraphRAGIndexer`, `GraphRAGExtractor`, `GraphRAGRetriever`, `EntityRepository`, `TripleRepository`, `GraphQueries`, `SshConnectionPool`, `TmuxManager`, `SkillToolHandler`.
+
+- `VaultMemoryBackend` renamed to `VaultStorageBackend` (backward-compat alias preserved).
+
 ## [0.3.0]
 
 ### Added

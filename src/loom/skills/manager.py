@@ -25,27 +25,8 @@ class SkillManager:
         self._registry = registry
         self._guard = guard
 
-    def invoke(self, args: dict) -> str:
-        action = args.get("action", "")
-        name = args.get("name", "")
-        handler = {
-            "create": self._create,
-            "edit": self._edit,
-            "patch": self._patch,
-            "delete": self._delete,
-            "write_file": self._write_file,
-            "remove_file": self._remove_file,
-        }.get(action)
-
-        if handler is None:
-            return f"error: unknown action {action!r}"
-        if not name and action != "list":
-            return "error: missing required field 'name'"
-
-        return handler(args)
-
     def _skill_dir(self, name: str) -> Path:
-        return self._registry._skills_dir / name
+        return self._registry.skills_dir / name
 
     def _resolve(self, name: str, file_path: str | None) -> Path:
         base = self._skill_dir(name).resolve()
@@ -70,7 +51,7 @@ class SkillManager:
         post.metadata["description"] = description
         return frontmatter.dumps(post)
 
-    def _create(self, args: dict) -> str:
+    def create(self, args: dict) -> str:
         name: str = args["name"]
         description: str = args.get("description", "")
         body: str = args.get("body", "")
@@ -103,7 +84,7 @@ class SkillManager:
 
         return f"created skill {name!r}"
 
-    def _edit(self, args: dict) -> str:
+    def edit(self, args: dict) -> str:
         name: str = args["name"]
         body: str = args.get("body", "")
 
@@ -131,7 +112,7 @@ class SkillManager:
 
         return f"edited skill {name!r}"
 
-    def _patch(self, args: dict) -> str:
+    def patch(self, args: dict) -> str:
         name: str = args["name"]
         target: str = args.get("body", "")
         replacement: str = args.get("content", "")
@@ -166,7 +147,7 @@ class SkillManager:
 
         return f"patched skill {name!r}"
 
-    def _delete(self, args: dict) -> str:
+    def delete(self, args: dict) -> str:
         name: str = args["name"]
         skill_dir = self._skill_dir(name)
 
@@ -181,7 +162,7 @@ class SkillManager:
         self._registry.unregister(name)
         return f"deleted skill {name!r}"
 
-    def _write_file(self, args: dict) -> str:
+    def write_file(self, args: dict) -> str:
         name: str = args["name"]
         file_path: str | None = args.get("file_path")
         content: str = args.get("content", "")
@@ -211,7 +192,7 @@ class SkillManager:
 
         return f"wrote {file_path!r} in skill {name!r}"
 
-    def _remove_file(self, args: dict) -> str:
+    def remove_file(self, args: dict) -> str:
         name: str = args["name"]
         file_path: str | None = args.get("file_path")
 

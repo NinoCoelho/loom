@@ -268,9 +268,20 @@ class SkillRegistry:
 ```python
 class SkillManager:
     def __init__(self, registry: SkillRegistry, guard: SkillGuard): ...
-    def invoke(self, args: dict) -> str: ...
+    def create(self, name: str, args: dict) -> str: ...
+    def edit(self, name: str, args: dict) -> str: ...
+    def patch(self, name: str, args: dict) -> str: ...
+    def delete(self, name: str, args: dict) -> str: ...
+    def write_file(self, name: str, args: dict) -> str: ...
+    def remove_file(self, name: str, args: dict) -> str: ...
 ```
-Actions: `create`, `edit`, `patch`, `delete`, `write_file`, `remove_file`
+
+### `SkillToolHandler`
+```python
+class SkillToolHandler(ToolHandler):
+    def __init__(self, manager: SkillManager): ...
+```
+Tool name: `manage_skill`. Actions: `create`, `edit`, `patch`, `delete`, `write_file`, `remove_file`. Delegates to `SkillManager`.
 
 ### `SkillGuard`
 ```python
@@ -670,6 +681,7 @@ class HeartbeatStore:
     def list_runs(self) -> list[HeartbeatRunRecord]: ...
     def delete(self, heartbeat_id: str, instance_id: str = "default") -> None: ...
     def delete_all(self, heartbeat_id: str) -> None: ...
+    def list_runs_for_heartbeat(self, heartbeat_id: str) -> list[HeartbeatRunRecord]: ...
 ```
 
 ### `HeartbeatScheduler`
@@ -701,13 +713,15 @@ CRUD operations on disk + registry sync. Used by `HeartbeatToolHandler`.
 ```python
 class HeartbeatManager:
     def __init__(self, registry: HeartbeatRegistry, store: HeartbeatStore): ...
-    def invoke(self, args: dict) -> str: ...
+    def create(self, args: dict) -> str: ...
+    def delete(self, name: str, args: dict) -> str: ...
+    def enable(self, name: str, args: dict) -> str: ...
+    def disable(self, name: str, args: dict) -> str: ...
+    def list_heartbeats(self) -> list[...]: ...
 ```
 
-Actions: `create`, `delete`, `enable`, `disable`, `list`.
-
 ### `HeartbeatToolHandler`
-Exposes `HeartbeatManager` as the `manage_heartbeat` tool so the agent can create and manage its own recurring tasks at runtime.
+Exposes `HeartbeatManager` as the `manage_heartbeat` tool. This is the sole entry point for tool dispatch — the agent interacts exclusively through this handler.
 
 ```python
 class HeartbeatToolHandler(ToolHandler):
@@ -1560,4 +1574,89 @@ class FilesystemCookieStore:
 ```
 
 Persists one Netscape cookies.txt file per domain in the configured directory. Used by `ScraplingProvider` for cookie-based auth retry.
+
+---
+
+## Internal Decomposition (Advanced)
+
+The following types are available for advanced use cases where direct access to sub-components is needed. Most users should use the facade classes listed above.
+
+### Agent Loop Internals (`loom.loop`)
+
+```python
+class TurnState:
+    pending_question: str | None = None
+    skills_touched: list[str] = []
+    last_tc_signature: str | None = None
+    identical_tc_streak: int = 0
+    total_input: int = 0
+    total_output: int = 0
+    total_tool_calls: int = 0
+```
+
+Created per-call by `run_turn` / `run_turn_stream`. Makes `Agent` reentrant.
+
+```python
+class TurnExecutor:
+    # Handles all turn logic (overflow, hooks, tool dispatch, stuck-loop detection)
+    ...
+```
+
+### Runtime Internals (`loom.runtime`)
+
+```python
+@dataclass
+class AgentRecord:
+    agent: Agent
+    home: AgentHome
+    config: AgentConfig
+    permissions: AgentPermissions
+    session_store: SessionStore
+    memory_store: MemoryStore
+```
+
+### Memory Internals (`loom.store.memory`)
+
+```python
+class StorageBackend(Protocol):
+    def write(self, key, content, ...) -> MemoryEntry: ...
+    def read(self, key) -> MemoryEntry: ...
+    def delete(self, key) -> str | None: ...
+    def search(self, query, limit) -> list[SearchHit]: ...
+    ...
+
+class FileStorageBackend:  # Implements StorageBackend
+    ...
+
+class MemorySearchEngine:
+    # BM25 + salience + recency + vector hybrid retrieval
+    ...
+```
+
+### GraphRAG Internals (`loom.store.graphrag`)
+
+```python
+class GraphRAGIndexer:
+    # Chunking, embedding, vector storage
+    ...
+
+class GraphRAGExtractor:
+    # LLM-based entity extraction
+    ...
+
+class GraphRAGRetriever:
+    # Hybrid vector + graph retrieval
+    ...
+```
+
+### SSH Session Internals (`loom.tools.ssh_session`)
+
+```python
+class SshConnectionPool:
+    # Connection lifecycle management
+    ...
+
+class TmuxManager:
+    # Tmux session operations
+    ...
 ```

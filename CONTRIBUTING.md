@@ -16,28 +16,33 @@ pip install -e ".[dev,anthropic]"
 
 ```
 loom/
-  src/loom/          -- AI Harness Framework source
-    acp/             -- Agent Communication Protocol (WebSocket + Ed25519)
-    config/          -- Configuration management
-    hitl/            -- Human-in-the-Loop broker (web/SSE)
-    llm/             -- LLM provider layer
-    tools/           -- Tool handler abstractions
-    skills/          -- Skill system
-    search/          -- Web search providers (DDGS, Brave, Tavily, Google, composite)
-    scrape/          -- Web scrape providers (Scrapling cascade)
-    store/           -- Persistence (sessions, vault, secrets, memory)
-    server/          -- FastAPI server factory
-    routing/         -- Model routing and classification
-    loop.py          -- Core agentic loop
-    types.py         -- Shared types
-    errors.py        -- Error classification
-    retry.py         -- Retry logic
-    home.py          -- Agent Home directory layout
-    permissions.py   -- Agent permissions model
-    prompt.py        -- PromptBuilder system
-    runtime.py       -- Multi-agent lifecycle manager
-  examples/tui/      -- Test TUI application
-  docs/              -- Additional documentation
+  src/loom/              -- AI Harness Framework source
+    acp/                 -- Agent Communication Protocol (WebSocket + Ed25519)
+    config/              -- Configuration management
+    hitl/                -- Human-in-the-Loop broker (web/SSE)
+    llm/                 -- LLM provider layer
+    tools/               -- Tool handler abstractions
+      ssh_session/       -- SSH session tool (_session, _pool, _tmux, _classify)
+    skills/              -- Skill system
+      tool.py            -- SkillToolHandler
+    search/              -- Web search providers (DDGS, Brave, Tavily, Google, composite)
+    scrape/              -- Web scrape providers (Scrapling cascade)
+    store/               -- Persistence (sessions, vault, secrets, memory)
+      graph/             -- Knowledge graph (_graph, _entities, _triples, _queries)
+      memory/            -- Memory store (_backend, _search, _schema, _types, ...)
+      graphrag/          -- GraphRAG integration (_indexer, _retriever, ...)
+    server/              -- FastAPI server factory
+    routing/             -- Model routing and classification
+    loop/                -- Core agentic loop (_loop, _executor, _turn, _types)
+    types.py             -- Shared types
+    errors.py            -- Error classification
+    retry.py             -- Retry logic
+    home.py              -- Agent Home directory layout
+    permissions.py       -- Agent permissions model
+    prompt.py            -- PromptBuilder system
+    runtime/             -- Multi-agent lifecycle manager (_runtime, _record, _factory)
+  examples/tui/          -- Test TUI application
+  docs/                  -- Additional documentation
 ```
 
 ## Code Style

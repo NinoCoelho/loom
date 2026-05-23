@@ -1,8 +1,8 @@
 """GraphRAG engine — chunking, entity extraction, hybrid retrieval, and context injection."""
 
 from loom.store.graphrag._chunking import chunk_markdown
-from loom.store.graphrag._engine import GraphRAGEngine, ontology_relation_ok
-from loom.store.graphrag._extraction import parse_extraction_response
+from loom.store.graphrag._engine import GraphRAGEngine
+from loom.store.graphrag._extraction import ontology_relation_ok, parse_extraction_response
 from loom.store.graphrag._types import (
     Chunk,
     EmbeddingConfig,

@@ -26,7 +26,7 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-class VaultMemoryBackend:
+class VaultStorageBackend:
     """Handles all vault-delegated I/O for MemoryStore.
 
     Owns vault path resolution, key↔path mapping, and vault-scoped
@@ -51,8 +51,6 @@ class VaultMemoryBackend:
     @property
     def prefix(self) -> str:
         return self._prefix
-
-    # ── key ↔ path mapping ──────────────────────────────────────────
 
     def key_from_vault_path(self, path: str) -> str:
         """Extract a memory key from a vault-relative path."""
@@ -100,15 +98,11 @@ class VaultMemoryBackend:
                 results.append(str(rel))
         return results
 
-    # ── meta sync ───────────────────────────────────────────────────
-
     def sync_meta(self, key: str, **updates: Any) -> None:
         sets = ", ".join(f"{k} = ?" for k in updates)
         vals = list(updates.values()) + [key]
         self._db.execute(f"UPDATE memory_meta SET {sets} WHERE key = ?", vals)
         self._db.commit()
-
-    # ── CRUD ────────────────────────────────────────────────────────
 
     async def write(
         self,
@@ -214,8 +208,6 @@ class VaultMemoryBackend:
         self._db.commit()
         return vpath
 
-    # ── search / recall ─────────────────────────────────────────────
-
     async def search(self, query: str, limit: int) -> list:
         from loom.store.memory import SearchHit
 
@@ -238,6 +230,9 @@ class VaultMemoryBackend:
         query: str,
         *,
         limit: int = 5,
+        candidate_pool: int = 30,
+        budget: int | None = None,
+        touch: bool = True,
         touch_fn=None,
     ) -> list:
         from loom.store.memory import RecallHit
@@ -266,7 +261,7 @@ class VaultMemoryBackend:
                     components={"bm25": bm25_norm},
                 )
             )
-        if touch_fn:
+        if touch and touch_fn:
             for h in hits:
                 touch_fn(h.key)
         return hits
@@ -313,15 +308,41 @@ class VaultMemoryBackend:
             total += len(preview)
         return results
 
-    # ── frontmatter update ──────────────────────────────────────────
-
     def update_frontmatter(self, key: str, updates: dict[str, Any]) -> None:
         vpath = self.vault_path_for_existing(key)
         if vpath is None:
             return
         self._vault.update_frontmatter(vpath, updates)
+        db_fields = {
+            "pinned": lambda v: int(v),
+            "importance": lambda v: v,
+            "access_count": lambda v: v,
+            "last_recalled_at": lambda v: v,
+        }
+        sync = {}
+        for k, v in updates.items():
+            if k in db_fields:
+                sync[k] = db_fields[k](v)
+        if sync:
+            self.sync_meta(key, **sync)
 
-    # ── reindex ─────────────────────────────────────────────────────
+    def touch(self, key: str) -> None:
+        now = _utc_now_iso()
+        vpath = self.vault_path_for_existing(key)
+        if vpath is None:
+            return
+        try:
+            fm = self._vault.read_frontmatter(vpath)
+        except FileNotFoundError:
+            return
+        count = int(fm.get("access_count", 0))
+        self.update_frontmatter(
+            key,
+            {
+                "access_count": count + 1,
+                "last_recalled_at": now,
+            },
+        )
 
     def reindex(self, has_fts5: bool) -> None:
         base = self._vault.root / self._prefix
@@ -361,3 +382,6 @@ class VaultMemoryBackend:
             except Exception:
                 continue
         self._db.commit()
+
+
+VaultMemoryBackend = VaultStorageBackend

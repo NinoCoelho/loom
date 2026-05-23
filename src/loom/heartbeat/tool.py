@@ -69,9 +69,20 @@ class HeartbeatToolHandler(ToolHandler):
         )
 
     async def invoke(self, args: dict) -> ToolResult:
+        action = args.get("action", "")
+        dispatch = {
+            "create": self._manager.create,
+            "delete": self._manager.delete,
+            "enable": self._manager.enable,
+            "disable": self._manager.disable,
+            "list": self._manager.list_heartbeats,
+        }
+        handler = dispatch.get(action)
+        if handler is None:
+            return ToolResult(text=f"error: unknown action {action!r}", is_error=True)
         try:
-            result = self._manager.invoke(args)
-            is_error = result.startswith("error:")
+            result = handler(args)
+            is_error = isinstance(result, str) and result.startswith("error:")
             return ToolResult(text=result, is_error=is_error)
         except Exception as exc:
             return ToolResult(text=f"error: {exc}", is_error=True)

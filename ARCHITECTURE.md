@@ -26,6 +26,8 @@ User message -> Build system prompt -> LOOP:
 - Streaming and non-streaming modes
 - Hook points: `on_before_turn`, `on_after_turn`, `on_tool_result`
 
+Internally, `loom.loop` is a package (not a single file). `Agent` delegates turn execution to `TurnExecutor` and tracks per-turn state via a `TurnState` dataclass, making `Agent` reentrant (a fresh `TurnState` is created per call). Public API (`run_turn`, `run_turn_stream`, `AgentConfig`, `AgentTurn`) is unchanged.
+
 **AgentConfig** controls behavior:
 - `max_iterations` -- iteration budget
 - `model` -- default model ID for provider registry
@@ -74,6 +76,8 @@ When `content_parts` is set, the agent loop constructs a multimodal `ChatMessage
 | `edit_identity` | `tools/profile.py` | Edit SOUL/IDENTITY/USER.md within permission bounds |
 | `web_search` | `tools/search.py` | Multi-provider web search (DDGS, Brave, Tavily, Google) with concurrent/fallback strategies |
 | `web_scrape` | `tools/scrape.py` | Scrape web pages — text/markdown/HTML, CSS/XPath, cookie auth |
+
+**AgentRuntime** -- uses a single `AgentRecord` dataclass instead of 6 parallel dicts. `AgentFactory` handles agent creation. Public API unchanged.
 
 **Search providers** (`loom.search`):
 
@@ -130,7 +134,7 @@ Step-by-step procedure...
 - `descriptions()` -> `(name, description)` pairs for system prompt
 - `get(name)` -> full Skill object
 
-**SkillManager** -- 6-op lifecycle (create/edit/patch/delete/write_file/remove_file):
+**SkillManager** -- disk-only CRUD (create/edit/patch/delete/write_file/remove_file); CRUD methods are now public (no underscore prefix). `SkillToolHandler` is the `ToolHandler` that routes tool dispatch to `SkillManager`. The `invoke` method was removed from `SkillManager` itself.
 - All writes are atomic (tempfile + rename)
 - All writes are guard-scanned before persisting
 - Validation: re-parses after write, rolls back on failure
@@ -271,6 +275,8 @@ The loop handles tool call assembly: collects fragments, dispatches completed to
 **KeychainStore** -- OS keychain backend for `SecretStore`-compatible access (`loom[keychain]`):
 - Same protocol as `SecretStore`; backed by macOS Keychain / Linux Secret Service / Windows Credential Manager via `keyring`
 
+**EntityGraph** (`store/graph`) -- now a package with `EntityGraph` as a facade delegating to `EntityRepository`, `TripleRepository`, and `GraphQueries`. Public API unchanged.
+
 **Atomic writes** (`store/atomic.py`):
 - `tempfile.mkstemp` + `os.replace`
 - Cleanup on exception
@@ -399,6 +405,8 @@ When wired in, vector similarity is blended into the hybrid score (weight 0.30).
 
 **Memory preview** -- top 5 recent memories auto-injected into system prompt (1500 char budget).
 
+Internally, `MemoryStore` is a facade delegating to a `StorageBackend` protocol (with `FileStorageBackend` and `VaultStorageBackend` implementations), `MemorySearchEngine`, and `MemorySchema`. This eliminates the 11 `if self._vault_backend is not None` branches. Public API unchanged.
+
 ### 17. Credential Subsystem (`loom.auth`, `loom.store.secrets`)
 
 Implements RFC 0002 (credentials + appliers + policies) and RFC 0003 (SSH tool). Three decoupled layers; each is independently usable.
@@ -466,6 +474,8 @@ scope
 
 Requires `loom[ssh]`.
 
+**SshSessionTool** -- thin dispatcher delegating to `SshConnectionPool` (connection lifecycle) and `TmuxManager` (tmux session management). The shared `_classify_error` utility is extracted from both `ssh.py` and `ssh_session.py`.
+
 ### 18. Heartbeat Scheduler (`loom.heartbeat`)
 
 Heartbeats are recurring scheduled tasks. Each one consists of two files in its own directory: `HEARTBEAT.md` (YAML frontmatter with `name`, `description`, `schedule`, `enabled` + a Markdown body used as the agent's system prompt) and `driver.py` (a class `Driver(HeartbeatDriver)` that implements `check(state) -> (events, new_state)`).
@@ -484,8 +494,10 @@ Heartbeats are recurring scheduled tasks. Each one consists of two files in its 
 | `HeartbeatRegistry` | In-memory index; scans directories for `HEARTBEAT.md` files |
 | `HeartbeatStore` | SQLite state persistence keyed by `(heartbeat_id, instance_id)` |
 | `HeartbeatScheduler` | Asyncio background loop; ticks, fires, invokes agent |
-| `HeartbeatManager` | Disk CRUD (create/delete/enable/disable/list) + registry sync |
-| `HeartbeatToolHandler` | `manage_heartbeat` tool — lets the agent manage heartbeats at runtime |
+| `HeartbeatManager` | Disk-only CRUD (create/delete/enable/disable/list) + registry sync; `invoke` removed |
+| `HeartbeatToolHandler` | `manage_heartbeat` tool — sole entry point for tool dispatch to `HeartbeatManager` |
+
+Fixed N+1 query in listing heartbeats.
 
 **Schedule formats:** natural language (`"every 5 minutes"`), cron shorthands (`@daily`, `@hourly`), or 5-field cron (`"0 9 * * 1-5"`).
 
@@ -512,7 +524,7 @@ Graph-based Retrieval-Augmented Generation. Fully opt-in — pass a `GraphRAGEng
 | `store.vector` | `VectorStore` | SQLite-backed vector store; float32 BLOBs, brute-force cosine search |
 | `store.graph` | `EntityGraph` | SQLite-backed entity-relationship graph; multi-hop BFS traversal, paginated listing, subgraph extraction, connected components, degree counts |
 | `store.embeddings` | `OllamaEmbeddingProvider` / `OpenAIEmbeddingProvider` | Async embedding API clients |
-| `store.graphrag` | `GraphRAGEngine` | Orchestrator: chunking, indexing, extraction, retrieval, context formatting |
+| `store.graphrag` | `GraphRAGEngine` | Facade delegating to `GraphRAGIndexer`, `GraphRAGExtractor`, and `GraphRAGRetriever`; public API unchanged |
 
 **Pipeline:**
 
@@ -575,3 +587,4 @@ AgentTurn (reply, iterations, skills_touched, messages, usage, model)
 4. **Crash safety** -- All disk mutations are atomic
 5. **Security first** -- Guard scanner, secret redaction, path traversal prevention
 6. **Type safe** -- Pydantic v2 models throughout
+7. **Facade pattern** -- Large classes decompose into focused sub-modules behind an unchanged public API

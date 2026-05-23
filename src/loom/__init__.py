@@ -99,6 +99,7 @@ from loom.search import (
 from loom.skills.guard import SkillGuard
 from loom.skills.manager import SkillManager
 from loom.skills.registry import SkillRegistry
+from loom.skills.tool import SkillToolHandler
 from loom.skills.types import Skill, SkillGuardVerdict, SkillMetadata
 from loom.store.cookies import CookieStore, FilesystemCookieStore
 from loom.store.embeddings import OllamaEmbeddingProvider, OpenAIEmbeddingProvider
@@ -259,6 +260,7 @@ __all__ = [
     "SkillManager",
     "SkillMetadata",
     "SkillRegistry",
+    "SkillToolHandler",
     "StopReason",
     "StreamEvent",
     "TextPart",

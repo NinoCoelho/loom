@@ -6,20 +6,29 @@ The standalone path (no vault) retains the original local-disk + SQLite
 behaviour and is the default.
 """
 
+from loom.store.memory._backend import FileStorageBackend, StorageBackend
 from loom.store.memory._core import (
     EmbeddingProvider,
-    MemoryEntry,
     MemoryStore,
-    RecallHit,
-    SearchHit,
 )
-from loom.store.memory._vault_backend import VaultMemoryBackend
+from loom.store.memory._schema import MemorySchema
+from loom.store.memory._search import MemorySearchEngine
+from loom.store.memory._types import MemoryEntry, RecallHit, SearchHit
+from loom.store.memory._vault_backend import (
+    VaultMemoryBackend,
+    VaultStorageBackend,
+)
 
 __all__ = [
     "EmbeddingProvider",
+    "FileStorageBackend",
     "MemoryEntry",
+    "MemorySchema",
+    "MemorySearchEngine",
     "MemoryStore",
     "RecallHit",
     "SearchHit",
+    "StorageBackend",
     "VaultMemoryBackend",
+    "VaultStorageBackend",
 ]

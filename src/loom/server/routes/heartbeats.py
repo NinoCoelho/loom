@@ -39,9 +39,8 @@ def create_heartbeat_router(
 
     @router.post("/heartbeats", response_model=dict)
     async def create_heartbeat(body: HeartbeatCreate):
-        result = manager.invoke(
+        result = manager.create(
             {
-                "action": "create",
                 "name": body.name,
                 "description": body.description,
                 "schedule": body.schedule,
@@ -55,21 +54,21 @@ def create_heartbeat_router(
 
     @router.delete("/heartbeats/{heartbeat_id}", response_model=dict)
     async def delete_heartbeat(heartbeat_id: str):
-        result = manager.invoke({"action": "delete", "name": heartbeat_id})
+        result = manager.delete({"name": heartbeat_id})
         if result.startswith("error:"):
             raise HTTPException(status_code=404, detail=result)
         return {"result": result}
 
     @router.post("/heartbeats/{heartbeat_id}/enable", response_model=dict)
     async def enable_heartbeat(heartbeat_id: str):
-        result = manager.invoke({"action": "enable", "name": heartbeat_id})
+        result = manager.enable({"name": heartbeat_id})
         if result.startswith("error:"):
             raise HTTPException(status_code=404, detail=result)
         return {"result": result}
 
     @router.post("/heartbeats/{heartbeat_id}/disable", response_model=dict)
     async def disable_heartbeat(heartbeat_id: str):
-        result = manager.invoke({"action": "disable", "name": heartbeat_id})
+        result = manager.disable({"name": heartbeat_id})
         if result.startswith("error:"):
             raise HTTPException(status_code=404, detail=result)
         return {"result": result}

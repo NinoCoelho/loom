@@ -42,40 +42,7 @@ from loom.types import ToolSpec
 if TYPE_CHECKING:
     from loom.auth.resolver import CredentialResolver
 
-
-
-
-def _classify_error(exc: Exception) -> str:
-    """Map an asyncssh exception to one of: auth | timeout | transport | unknown."""
-    try:
-        import asyncssh
-    except ImportError:
-        pass
-    else:
-        if isinstance(exc, asyncssh.DisconnectError):
-            return "transport"
-        if isinstance(exc, asyncssh.PermissionDenied):
-            return "auth"
-        if isinstance(exc, asyncssh.HostKeyNotVerifiable):
-            return "auth"
-        if isinstance(exc, (asyncssh.ConnectionLost, asyncssh.ChannelOpenError)):
-            return "transport"
-        if isinstance(exc, asyncssh.Error):
-            msg = str(exc).lower()
-            if any(k in msg for k in ("auth", "permission", "denied", "key", "password")):
-                return "auth"
-            return "transport"
-
-    exc_type = type(exc).__name__.lower()
-    exc_msg = str(exc).lower()
-
-    if "timeout" in exc_type or "timeout" in exc_msg:
-        return "timeout"
-    if any(k in exc_msg for k in ("auth", "permission", "denied", "key", "password")):
-        return "auth"
-    if any(k in exc_msg for k in ("connect", "refused", "reset", "broken pipe", "network")):
-        return "transport"
-    return "unknown"
+from loom.tools.ssh_session._classify import _classify_error  # noqa: F401
 
 
 class SshCallTool(ToolHandler):
