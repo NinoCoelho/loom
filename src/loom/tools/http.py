@@ -1,19 +1,23 @@
 """HTTP call tool — make GET/POST requests from the agent loop.
 
 Wraps ``httpx.AsyncClient`` with configurable base headers, timeout,
-max response size, and an optional pre-request hook for credential
-injection or URL rewriting.
+max response size, optional ad/tracker blocklist filtering, and an
+optional pre-request hook for credential injection or URL rewriting.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 import httpx
 
 from loom.tools.base import ToolHandler, ToolResult
 from loom.tools.utils import truncate_text
 from loom.types import ToolSpec
+
+if TYPE_CHECKING:
+    from loom.scrape.blocklist import Blocklist
 
 # Hook signature: takes the effective request dict, returns a (possibly
 # modified) request dict of the same shape. Keys: method, url, headers, body.
@@ -32,11 +36,13 @@ class HttpCallTool(ToolHandler):
         timeout: float = 30.0,
         max_response_bytes: int = 10240,
         pre_request_hook: PreRequestHook | None = None,
+        blocklist: Blocklist | None = None,
     ) -> None:
         self._base_headers = base_headers or {}
         self._timeout = timeout
         self._max_response_bytes = max_response_bytes
         self._pre_request_hook = pre_request_hook
+        self._blocklist = blocklist
 
     @property
     def tool(self) -> ToolSpec:
@@ -73,6 +79,14 @@ class HttpCallTool(ToolHandler):
         url = args.get("url", "")
         headers = {**self._base_headers, **(args.get("headers") or {})}
         body = args.get("body")
+
+        if self._blocklist is not None:
+            blocked, domain = self._blocklist.check_url(url)
+            if blocked:
+                return ToolResult(
+                    text=f"Request blocked: {domain} is on the ad/tracker blocklist.",
+                    is_error=True,
+                )
 
         if self._pre_request_hook is not None:
             try:

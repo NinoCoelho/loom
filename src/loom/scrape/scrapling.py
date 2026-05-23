@@ -15,6 +15,7 @@ import re
 from urllib.parse import urlparse
 
 from loom.scrape.base import ScrapeProviderError, ScrapeResult
+from loom.scrape.blocklist import Blocklist
 from loom.store.cookies import CookieStore
 from loom.tools.utils import truncate_text
 
@@ -197,8 +198,8 @@ class ScraplingProvider:
         headless: bool = True,
         timeout: int = 30,
         max_content_bytes: int = 20480,
+        blocklist: Blocklist | None = None,
     ) -> None:
-        """Configure fetcher mode, cookie store, headless flag, timeout, and max content size."""
         if mode not in ("auto", "fetcher", "dynamic", "stealthy"):
             raise ValueError(f"Invalid mode: {mode}")
         self._mode = mode
@@ -206,6 +207,7 @@ class ScraplingProvider:
         self._headless = headless
         self._timeout = timeout
         self._max_content_bytes = max_content_bytes
+        self._blocklist = blocklist
 
     @property
     def name(self) -> str:
@@ -222,6 +224,16 @@ class ScraplingProvider:
     ) -> ScrapeResult:
         """Fetch URL, detect blocks/auth, retry with cookies, convert
         to the requested format."""
+        if self._blocklist is not None:
+            blocked, domain = self._blocklist.check_url(url)
+            if blocked:
+                return ScrapeResult(
+                    url=url,
+                    content=f"Request blocked: {domain} is on the ad/tracker blocklist.",
+                    content_type="text",
+                    status_code=None,
+                )
+
         result = await self._cascade_fetch(url, "html")
 
         if (
@@ -277,7 +289,10 @@ class ScraplingProvider:
                     result.content = _html_to_markdown(html_content)
                     result.content_type = "markdown"
 
-        effective_limit = max_content_chars if max_content_chars is not None else self._max_content_bytes
+        effective_limit = (
+            max_content_chars if max_content_chars is not None
+            else self._max_content_bytes
+        )
         if output_format != "html" and not (css_selector or xpath):
             if _looks_like_low_content(result.content, html_content):
                 logger.info(

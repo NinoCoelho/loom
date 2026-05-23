@@ -17,6 +17,9 @@ Security posture:
     arrive so the host can forward them to a live UI.
   * Output truncation on each stream (stdout/stderr) keeps the
     tool-result envelope bounded.
+  * Optional :class:`~loom.security.BinaryRegistry` integration: when
+    provided, extracts the first token of the command as the binary path
+    and verifies it against the trusted registry before execution.
 """
 
 from __future__ import annotations
@@ -24,15 +27,20 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
+import shutil
 import signal
 import subprocess
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from loom.hitl.broker import CURRENT_SESSION_ID, TIMEOUT_SENTINEL, HitlBroker
+from loom.hitil.broker import CURRENT_SESSION_ID, TIMEOUT_SENTINEL, HitlBroker
 from loom.tools.base import ToolHandler, ToolResult
 from loom.types import ToolSpec
+
+if TYPE_CHECKING:
+    from loom.security.binary_registry import BinaryRegistry
 
 _DEFAULT_TIMEOUT_SECONDS = 60
 _MAX_TIMEOUT_SECONDS = 600
@@ -160,6 +168,7 @@ class TerminalTool(ToolHandler):
         on_output: Callable[[str, str], Awaitable[None]] | None = None,
         proc_register: Callable[[asyncio.subprocess.Process], None] | None = None,
         proc_unregister: Callable[[], None] | None = None,
+        binary_registry: BinaryRegistry | None = None,
     ) -> None:
         self._broker = broker
         self._yolo = yolo_getter or (lambda: False)
@@ -170,6 +179,7 @@ class TerminalTool(ToolHandler):
         self._on_output = on_output
         self._proc_register = proc_register
         self._proc_unregister = proc_unregister
+        self._binary_registry = binary_registry
 
     @property
     def tool(self) -> ToolSpec:
@@ -184,6 +194,11 @@ class TerminalTool(ToolHandler):
         if not isinstance(command, str) or not command.strip():
             return _error("`command` is required and must be a non-empty string")
         command = command.strip()
+
+        if self._binary_registry is not None:
+            binary_error = self._check_binary(command)
+            if binary_error is not None:
+                return _error(binary_error)
 
         cwd_raw = args.get("cwd")
         if cwd_raw is not None and not isinstance(cwd_raw, str):
@@ -242,6 +257,22 @@ class TerminalTool(ToolHandler):
             proc_register=self._proc_register,
             proc_unregister=self._proc_unregister,
         )
+
+    def _check_binary(self, command: str) -> str | None:
+        try:
+            first_token = shlex.split(command)[0]
+        except ValueError:
+            return None
+        binary_path = shutil.which(first_token)
+        if binary_path is None:
+            if os.path.isabs(first_token):
+                binary_path = first_token
+            else:
+                return None
+        ok, msg = self._binary_registry.check_or_error(binary_path)
+        if not ok:
+            return msg
+        return None
 
 
 def _approval_prompt(command: str, cwd: str | None) -> str:

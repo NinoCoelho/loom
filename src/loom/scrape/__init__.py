@@ -9,12 +9,17 @@ Ships one concrete provider:
 All providers implement the :class:`ScrapeProvider` protocol and return
 :class:`ScrapeResult` dataclasses. Errors are surfaced as
 :class:`ScrapeProviderError`.
+
+The optional :class:`Blocklist` provides ad/tracker URL filtering that
+can be shared across scrape providers and HTTP tools.
 """
 
 from loom.scrape.base import ScrapeProvider, ScrapeProviderError, ScrapeResult
+from loom.scrape.blocklist import Blocklist
 from loom.scrape.scrapling import ScraplingProvider
 
 __all__ = [
+    "Blocklist",
     "ScrapeProvider",
     "ScrapeProviderError",
     "ScrapeResult",

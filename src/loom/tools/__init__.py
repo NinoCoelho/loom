@@ -15,6 +15,8 @@ Built-in tools include:
 * :class:`~loom.tools.vault.VaultToolHandler` — vault file operations.
 * :class:`~loom.tools.search.WebSearchTool` — multi-provider web search.
 * :class:`~loom.tools.scrape.WebScrapeTool` — web page scraping with format conversion.
+* :class:`~loom.tools.download.DownloadTool` — managed file downloads with progress.
+* :class:`~loom.tools.backup.BackupTool` — agent home backup/restore.
 """
 
 from loom.tools.base import ToolHandler as ToolHandler
