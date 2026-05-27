@@ -84,6 +84,15 @@ TERMINAL_TOOL_SPEC = ToolSpec(
                     "be a background job, not a tool call."
                 ),
             },
+            "env": {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+                "description": (
+                    "Extra environment variables to inject into the "
+                    "subprocess. Merged with the parent environment. "
+                    "Values are never shown in the approval prompt."
+                ),
+            },
         },
         "required": ["command"],
     },
@@ -216,6 +225,13 @@ class TerminalTool(ToolHandler):
         if not isinstance(require_approval, bool):
             return _error("`require_approval` must be a boolean")
 
+        extra_env: dict[str, str] | None = None
+        env_raw = args.get("env")
+        if env_raw is not None:
+            if not isinstance(env_raw, dict):
+                return _error("`env` must be an object with string values")
+            extra_env = {str(k): str(v) for k, v in env_raw.items()}
+
         if require_approval:
             session_id = CURRENT_SESSION_ID.get()
             if session_id is None:
@@ -256,6 +272,7 @@ class TerminalTool(ToolHandler):
             on_output=self._on_output,
             proc_register=self._proc_register,
             proc_unregister=self._proc_unregister,
+            extra_env=extra_env,
         )
 
     def _check_binary(self, command: str) -> str | None:
@@ -293,8 +310,12 @@ async def _run_command(
     on_output: Callable[[str, str], Awaitable[None]] | None = None,
     proc_register: Callable[[asyncio.subprocess.Process], None] | None = None,
     proc_unregister: Callable[[], None] | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> TerminalResult:
     start = asyncio.get_running_loop().time()
+    child_env: dict[str, str] | None = None
+    if extra_env:
+        child_env = {**os.environ, **extra_env}
     try:
         proc = await asyncio.create_subprocess_shell(
             command,
@@ -302,6 +323,7 @@ async def _run_command(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
+            env=child_env,
         )
     except OSError as exc:
         return _error(f"failed to launch subprocess: {exc}")
