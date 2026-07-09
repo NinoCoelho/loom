@@ -8,6 +8,10 @@ from typing import TYPE_CHECKING, Any
 
 from loom.llm.base import LLMProvider
 from loom.llm.registry import ProviderRegistry
+from loom.loop._turn import TurnState
+from loom.loop._types import AgentConfig, AgentTurn
+from loom.loop.compaction import CompactionRequest, classify_zone
+from loom.overflow import OverflowCheck
 from loom.overflow import check_overflow as _check_overflow
 from loom.prompt import (
     PromptBuilder,
@@ -24,21 +28,16 @@ from loom.types import (
     ChatMessage,
     ChatResponse,
     Role,
-    StopReason,
     StreamEvent,
     ToolCall,
     ToolSpec,
 )
 
-from loom.loop._turn import TurnState
-from loom.loop._types import AgentConfig, AgentTurn
-
 if TYPE_CHECKING:
+    from loom.home import AgentHome
     from loom.permissions import AgentPermissions
     from loom.store.graphrag import GraphRAGEngine
     from loom.store.memory import MemoryStore
-
-    from loom.home import AgentHome
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +277,110 @@ class TurnExecutor:
             estimator=self._deps.config.estimate_input_tokens,
         )
         return ov if ov.overflowed else None
+
+    async def resolve_overflow(
+        self,
+        all_messages: list[ChatMessage],
+        ctx_window: int,
+        iteration: int,
+    ) -> tuple[list[ChatMessage], OverflowCheck | None]:
+        """Check overflow; if a compactor is configured, rescue the turn.
+
+        Returns ``(messages, overflow_check_or_None)``:
+
+        * ``(messages, None)`` — fits (or was compacted to fit); proceed.
+        * ``(messages, ov)`` — still overflowing after all attempts (or no
+          compactor wired). The caller should emit ``OverflowEvent`` and stop,
+          exactly as it did before compaction existed.
+
+        With ``config.compactor is None`` this is a thin wrapper around
+        ``check_overflow`` and behavior is identical to pre-compaction loom.
+        """
+        ov = self.check_overflow(all_messages, ctx_window)
+        if ov is None:
+            return all_messages, None
+
+        compactor = self._deps.config.compactor
+        if compactor is None:
+            return all_messages, ov
+
+        messages = all_messages
+        last_ov = ov
+        max_attempts = self._deps.config.max_compaction_attempts
+        overhead = self._deps.config.overflow_tools_overhead
+        emit = self._deps.emit_fn
+
+        for attempt in range(1, max_attempts + 1):
+            zone = classify_zone(
+                last_ov.estimated_input_tokens, ctx_window, tools_overhead=overhead
+            )
+            request = CompactionRequest(
+                messages=messages,
+                estimated_tokens=last_ov.estimated_input_tokens,
+                context_window=ctx_window,
+                zone=zone,
+                iteration=iteration,
+                attempt=attempt,
+            )
+            if emit:
+                emit(
+                    "before_compaction",
+                    {
+                        "attempt": attempt,
+                        "iteration": iteration,
+                        "estimated_tokens": last_ov.estimated_input_tokens,
+                        "zone": zone,
+                    },
+                )
+            try:
+                result = await compactor(request)
+            except Exception as exc:  # noqa: BLE001 — compactor is consumer code
+                logger.warning(
+                    "compactor attempt %d/%d raised; aborting compaction",
+                    attempt,
+                    max_attempts,
+                    exc_info=True,
+                )
+                if emit:
+                    emit(
+                        "compaction_error",
+                        {"attempt": attempt, "error": str(exc)},
+                    )
+                return messages, last_ov
+
+            compacted = result.messages if result.messages is not None else messages
+            tokens_after = result.tokens_after
+            if emit:
+                emit(
+                    "after_compaction",
+                    {
+                        "attempt": attempt,
+                        "actions": list(result.actions),
+                        "tokens_before": last_ov.estimated_input_tokens,
+                        "tokens_after": tokens_after,
+                        "still_overflowed": result.still_overflowed,
+                    },
+                )
+            messages = compacted
+            # Authoritative re-check. A compactor may claim success (e.g. it
+            # used a cheaper estimator) but the loop's own check is the gate.
+            last_ov = self.check_overflow(messages, ctx_window)
+            if last_ov is None:
+                logger.info(
+                    "compaction resolved overflow on attempt %d/%d "
+                    "(tokens %d -> %d)",
+                    attempt,
+                    max_attempts,
+                    request.estimated_tokens,
+                    tokens_after,
+                )
+                return messages, None
+
+        logger.warning(
+            "compaction exhausted after %d attempt(s); still overflowing",
+            max_attempts,
+        )
+        return messages, last_ov
 
     async def call_llm(
         self,

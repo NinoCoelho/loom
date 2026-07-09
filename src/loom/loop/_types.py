@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+
+    from loom.loop.compaction import CompactionRequest, CompactionResult
     from loom.tools.base import ToolHandler
 
 _DEFAULT_AFFIRMATIVES = frozenset(
@@ -105,6 +107,8 @@ class AgentConfig:
         overflow_output_headroom: int = 4096,
         overflow_tools_overhead: int = 0,
         estimate_input_tokens: Callable[[list[Any]], int] | None = None,
+        compactor: Callable[[CompactionRequest], Awaitable[CompactionResult]] | None = None,
+        max_compaction_attempts: int = 3,
     ) -> None:
         self.max_iterations = max_iterations
         self.model = model
@@ -126,6 +130,8 @@ class AgentConfig:
         self.overflow_output_headroom = overflow_output_headroom
         self.overflow_tools_overhead = overflow_tools_overhead
         self.estimate_input_tokens = estimate_input_tokens
+        self.compactor = compactor
+        self.max_compaction_attempts = max(1, max_compaction_attempts)
 
     def resolve_context_window(self, model_id: str | None) -> int:
         cw = self.context_window

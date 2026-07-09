@@ -15,10 +15,22 @@ from typing import TYPE_CHECKING, Any
 
 from loom.llm.base import LLMProvider
 from loom.llm.registry import ProviderRegistry
+from loom.loop._executor import (
+    TurnDeps,
+    TurnExecutor,
+    annotate_short_reply,
+    build_system_prompt,
+    extract_pending_question,
+    graphrag_enrich,
+    resolve_provider,
+)
+from loom.loop._turn import TurnState
+from loom.loop._types import AgentConfig, AgentTurn
 from loom.skills.registry import SkillRegistry
 from loom.tools.registry import ToolRegistry
 from loom.types import (
     ChatMessage,
+    ChatResponse,
     ContentDeltaEvent,
     DoneEvent,
     ErrorEvent,
@@ -31,18 +43,6 @@ from loom.types import (
     ToolExecResultEvent,
     ToolExecStartEvent,
 )
-
-from loom.loop._executor import (
-    TurnDeps,
-    TurnExecutor,
-    annotate_short_reply,
-    build_system_prompt,
-    extract_pending_question,
-    graphrag_enrich,
-    resolve_provider,
-)
-from loom.loop._turn import TurnState
-from loom.loop._types import AgentConfig, AgentTurn
 
 if TYPE_CHECKING:
     from loom.home import AgentHome
@@ -170,7 +170,9 @@ class Agent:
                 return turn
             all_messages = hooked
 
-            ov = executor.check_overflow(all_messages, ctx_window)
+            all_messages, ov = await executor.resolve_overflow(
+                all_messages, ctx_window, iteration
+            )
             if ov is not None:
                 self._emit("context_overflow", {
                     "iteration": iteration,
@@ -285,7 +287,9 @@ class Agent:
                 return
             all_messages = hooked
 
-            ov = executor.check_overflow(all_messages, ctx_window)
+            all_messages, ov = await executor.resolve_overflow(
+                all_messages, ctx_window, iteration
+            )
             if ov is not None:
                 self._emit("context_overflow", {
                     "iteration": iteration,
