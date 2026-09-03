@@ -46,11 +46,29 @@ class ExtractionConfig:
 
 
 @dataclass
+class ResolutionConfig:
+    """Staged entity resolution: exact alias → embedding → LLM."""
+
+    enabled: bool = True
+    auto_merge_threshold: float = 0.86
+    llm_threshold: float = 0.75
+
+
+@dataclass
+class ConflictConfig:
+    """Write-time fact-conflict detection with a human review queue."""
+
+    enabled: bool = True
+
+
+@dataclass
 class GraphRAGConfig:
     enabled: bool = False
     embeddings: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     extraction: ExtractionConfig = field(default_factory=ExtractionConfig)
     ontology: OntologyConfig = field(default_factory=OntologyConfig)
+    resolution: ResolutionConfig = field(default_factory=ResolutionConfig)
+    conflicts: ConflictConfig = field(default_factory=ConflictConfig)
     max_hops: int = 2
     context_budget: int = 3000
     top_k: int = 10

@@ -46,8 +46,41 @@ class EntityGraph(SqliteResource):
         chunk_id: str,
         description: str = "",
         strength: float = 5.0,
-    ) -> None:
-        return self._triples.add_triple(head_id, relation, tail_id, chunk_id, description, strength)
+        source_path: str = "",
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+        conflict_detection: bool = True,
+    ) -> tuple[int | None, int | None]:
+        return self._triples.add_triple(
+            head_id,
+            relation,
+            tail_id,
+            chunk_id,
+            description,
+            strength,
+            source_path,
+            valid_from,
+            valid_to,
+            conflict_detection,
+        )
+
+    def get_triple(self, triple_id: int):
+        return self._triples.get_triple(triple_id)
+
+    def list_conflicts(self, resolved: bool = False) -> list[dict]:
+        return self._triples.list_conflicts(resolved)
+
+    def resolve_conflict(self, conflict_id: int, resolution: str) -> bool:
+        return self._triples.resolve_conflict(conflict_id, resolution)
+
+    def merge_entities(self, survivor_id: int, merged_id: int) -> int | None:
+        return self._entities.merge_entities(survivor_id, merged_id)
+
+    def unmerge(self, merge_id: int) -> bool:
+        return self._entities.unmerge(merge_id)
+
+    def list_merges(self, reverted: bool = False) -> list[dict]:
+        return self._entities.list_merges(reverted)
 
     def add_mention(self, entity_id: int, chunk_id: str) -> None:
         return self._triples.add_mention(entity_id, chunk_id)

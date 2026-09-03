@@ -168,6 +168,12 @@ class GraphRAGRetriever:
                             "target": t.tail_id,
                             "relation": t.relation,
                             "strength": t.strength,
+                            "description": t.description,
+                            "chunk_id": t.chunk_id,
+                            "source_path": t.source_path,
+                            "valid_from": t.valid_from,
+                            "valid_to": t.valid_to,
+                            "asserted_at": t.asserted_at,
                         }
             subgraph_edges.extend(edge_map.values())
 

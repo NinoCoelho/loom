@@ -21,3 +21,9 @@ class Triple:
     chunk_id: str
     description: str = ""
     strength: float = 5.0
+    source_path: str = ""
+    valid_from: str | None = None
+    valid_to: str | None = None
+    asserted_at: str | None = None
+    superseded_by: int | None = None
+    status: str = "active"

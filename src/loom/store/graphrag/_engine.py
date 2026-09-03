@@ -32,6 +32,7 @@ from loom.store.db import SqliteResource
 from loom.store.graph import EntityGraph
 from loom.store.graphrag._extraction import GraphRAGExtractor
 from loom.store.graphrag._indexer import GraphRAGIndexer
+from loom.store.graphrag._resolution import EntityResolver
 from loom.store.graphrag._retriever import GraphRAGRetriever
 from loom.store.graphrag._types import (
     EnrichedRetrieval,
@@ -63,8 +64,22 @@ class GraphRAGEngine(SqliteResource):
             db_dir=db_dir,
             entity_graph=self._entity_graph,
         )
+        self._resolver: EntityResolver | None = None
+        if config.resolution.enabled:
+            self._resolver = EntityResolver(
+                self._entity_graph,
+                self._indexer._vector_store,
+                embedding_provider,
+                config,
+                llm_provider,
+            )
         self._extractor = (
-            GraphRAGExtractor(self._entity_graph, llm_provider, config)
+            GraphRAGExtractor(
+                self._entity_graph,
+                llm_provider,
+                config,
+                resolver=self._resolver,
+            )
             if llm_provider
             else None
         )
@@ -99,7 +114,9 @@ class GraphRAGEngine(SqliteResource):
 
         Returns ``{"nodes": [...], "edges": [...], "enabled": True}`` where
         each node has ``id``, ``name``, ``type`` and each edge has
-        ``source``, ``target``, ``relation``, ``strength``.
+        ``source``, ``target``, ``relation``, ``strength`` plus fact-level
+        provenance (``source_path``, ``valid_from``, ``valid_to``,
+        ``asserted_at``).
         """
         entities = self._entity_graph.list_all_entities()
         nodes = [{"id": e.id, "name": e.name, "type": e.type} for e in entities]
@@ -110,10 +127,34 @@ class GraphRAGEngine(SqliteResource):
                 "target": t.tail_id,
                 "relation": t.relation,
                 "strength": t.strength,
+                "description": t.description,
+                "chunk_id": t.chunk_id,
+                "source_path": t.source_path,
+                "valid_from": t.valid_from,
+                "valid_to": t.valid_to,
+                "asserted_at": t.asserted_at,
             }
             for t in triples
         ]
         return {"nodes": nodes, "edges": edges, "enabled": True}
+
+    def list_conflicts(self, resolved: bool = False) -> list[dict]:
+        return self._entity_graph.list_conflicts(resolved)
+
+    def get_triple(self, triple_id: int):
+        return self._entity_graph.get_triple(triple_id)
+
+    def resolve_conflict(self, conflict_id: int, resolution: str) -> bool:
+        return self._entity_graph.resolve_conflict(conflict_id, resolution)
+
+    def merge_entities(self, survivor_id: int, merged_id: int) -> int | None:
+        return self._entity_graph.merge_entities(survivor_id, merged_id)
+
+    def unmerge(self, merge_id: int) -> bool:
+        return self._entity_graph.unmerge(merge_id)
+
+    def list_merges(self, reverted: bool = False) -> list[dict]:
+        return self._entity_graph.list_merges(reverted)
 
     def chunk_text(self, text: str, source_path: str):
         return self._indexer.chunk_text(text, source_path)

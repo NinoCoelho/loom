@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from loom.store.graph._triples import _TRIPLE_SELECT, _row_to_triple
 from loom.store.graph._types import Entity, Triple
 
 
@@ -34,7 +35,8 @@ class GraphQueries:
             next_frontier: set[int] = set()
             for eid in frontier:
                 rows = self._db.execute(
-                    "SELECT head_id, tail_id FROM triples WHERE head_id = ? OR tail_id = ?",
+                    "SELECT head_id, tail_id FROM triples "
+                    "WHERE status = 'active' AND (head_id = ? OR tail_id = ?)",
                     (eid, eid),
                 ).fetchall()
                 for head_id, tail_id in rows:
@@ -96,22 +98,11 @@ class GraphQueries:
 
     def get_entity_triples(self, entity_id: int) -> list[Triple]:
         rows = self._db.execute(
-            "SELECT id, head_id, relation, tail_id, chunk_id, description, strength "
-            "FROM triples WHERE head_id = ? OR tail_id = ?",
+            f"SELECT {_TRIPLE_SELECT} "
+            "WHERE status = 'active' AND (head_id = ? OR tail_id = ?)",
             (entity_id, entity_id),
         ).fetchall()
-        return [
-            Triple(
-                id=r[0],
-                head_id=r[1],
-                relation=r[2],
-                tail_id=r[3],
-                chunk_id=r[4],
-                description=r[5],
-                strength=r[6],
-            )
-            for r in rows
-        ]
+        return [_row_to_triple(r) for r in rows]
 
     def subgraph(
         self,
@@ -131,8 +122,8 @@ class GraphQueries:
                 if len(visited_ids) >= max_nodes:
                     break
                 rows = self._db.execute(
-                    "SELECT id, head_id, relation, tail_id, chunk_id, description, strength "
-                    "FROM triples WHERE head_id = ? OR tail_id = ? "
+                    f"SELECT {_TRIPLE_SELECT} "
+                    "WHERE status = 'active' AND (head_id = ? OR tail_id = ?) "
                     "ORDER BY strength DESC LIMIT ?",
                     (eid, eid, max_neighbors_per_node),
                 ).fetchall()
@@ -140,15 +131,7 @@ class GraphQueries:
                     if r[0] in seen_triple_ids:
                         continue
                     seen_triple_ids.add(r[0])
-                    t = Triple(
-                        id=r[0],
-                        head_id=r[1],
-                        relation=r[2],
-                        tail_id=r[3],
-                        chunk_id=r[4],
-                        description=r[5],
-                        strength=r[6],
-                    )
+                    t = _row_to_triple(r)
                     all_triples.append(t)
                     other = t.tail_id if t.head_id == eid else t.head_id
                     if other not in visited_ids and len(visited_ids) < max_nodes:
@@ -223,17 +206,6 @@ class GraphQueries:
 
     def list_all_triples(self) -> list[Triple]:
         rows = self._db.execute(
-            "SELECT id, head_id, relation, tail_id, chunk_id, description, strength FROM triples"
+            f"SELECT {_TRIPLE_SELECT} WHERE status = 'active'"
         ).fetchall()
-        return [
-            Triple(
-                id=r[0],
-                head_id=r[1],
-                relation=r[2],
-                tail_id=r[3],
-                chunk_id=r[4],
-                description=r[5],
-                strength=r[6],
-            )
-            for r in rows
-        ]
+        return [_row_to_triple(r) for r in rows]

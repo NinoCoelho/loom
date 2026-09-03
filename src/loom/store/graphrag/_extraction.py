@@ -34,6 +34,10 @@ For each relationship provide:
 - tail: name of the target entity (same constraints as entity name)
 - description: natural language description of the relationship
 - strength: integer 1-10 indicating relationship strength
+- valid_from: ONLY when the text states when the fact started to hold
+  (format YYYY, YYYY-MM, or YYYY-MM-DD); omit otherwise
+- valid_to: ONLY when the text states when the fact stopped holding
+  (same format); omit otherwise
 
 Skip any entity or relationship you are not confident in. Quality over quantity.
 
@@ -43,7 +47,8 @@ Text:
 Respond with ONLY valid JSON in this exact format (no markdown fences):
 {{"entities": [{{"name": "...", "type": "...", "description": "..."}}],
  "relations": [{{"head": "...", "relation": "...", "tail": "..."
-                 , "description": "...", "strength": 5, "custom": false}}]}}\
+                  , "description": "...", "strength": 5, "custom": false,
+                  "valid_from": "YYYY-MM-DD", "valid_to": null}}]}}\
 """
 
 _GLEAN_PROMPT = """\
@@ -61,6 +66,26 @@ _NAME_MAX_LEN = 80
 _NAME_REJECT_SUBSTRINGS = ("](", "://", "```")
 _NAME_MERMAID_TOKENS = re.compile(r"\b(?:PK|FK|pk|fk)\b")
 _NAME_HAS_LETTER = re.compile(r"[A-Za-zÀ-ÿ]")
+
+_TEMPORAL_PATTERNS = (
+    re.compile(r"^(\d{4}-\d{2}-\d{2})"),
+    re.compile(r"^(\d{4}-\d{2})$"),
+    re.compile(r"^(\d{4})$"),
+)
+
+
+def parse_temporal(raw: Any) -> str | None:
+    """Leniently normalize a time qualifier to YYYY[-MM[-DD]], or drop it."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    for pattern in _TEMPORAL_PATTERNS:
+        m = pattern.match(s)
+        if m:
+            return m.group(1)
+    return None
 
 
 def _sanitize_entity_name(raw: str) -> str | None:
@@ -119,10 +144,12 @@ class GraphRAGExtractor:
         entity_graph: Any,
         llm_provider: Any,
         config: Any,
+        resolver: Any = None,
     ) -> None:
         self._entity_graph = entity_graph
         self._llm = llm_provider
         self._config = config
+        self._resolver = resolver
 
     async def extract(self, chunks: list[Any]) -> None:
         await self._extract_entities(chunks)
@@ -148,7 +175,7 @@ class GraphRAGExtractor:
                 continue
 
             parsed = parse_extraction_response(resp.message.content or "")
-            self._store_extraction(parsed, chunk.id)
+            await self._store_extraction(parsed, chunk)
 
             for _ in range(self._config.extraction.max_gleanings):
                 glean_prompt = _GLEAN_PROMPT.format(text=chunk.content[:3000])
@@ -162,11 +189,17 @@ class GraphRAGExtractor:
                 except Exception:
                     break
                 glean_parsed = parse_extraction_response(glean_resp.message.content or "")
-                self._store_extraction(glean_parsed, chunk.id)
+                await self._store_extraction(glean_parsed, chunk)
 
-    def _store_extraction(self, parsed: dict[str, Any], chunk_id: str) -> None:
+    async def _resolve_entity(self, name: str, etype: str, aliases: dict[str, list[str]]) -> int:
+        if self._resolver is not None:
+            return await self._resolver.resolve(name, etype, aliases)
+        return self._entity_graph.resolve_entity(name, etype, aliases)
+
+    async def _store_extraction(self, parsed: dict[str, Any], chunk: Any) -> None:
         aliases = self._config.ontology.aliases
         entity_name_to_id: dict[str, int] = {}
+        chunk_id = chunk.id
 
         for ent in parsed.get("entities", []):
             name = _sanitize_entity_name(ent.get("name", ""))
@@ -175,7 +208,7 @@ class GraphRAGExtractor:
                 continue
             if etype not in self._config.ontology.entity_types:
                 etype = "concept"
-            eid = self._entity_graph.resolve_entity(name, etype, aliases)
+            eid = await self._resolve_entity(name, etype, aliases)
             entity_name_to_id[name.lower()] = eid
             if ent.get("description"):
                 existing = self._entity_graph.get_entity(eid)
@@ -189,6 +222,8 @@ class GraphRAGExtractor:
             relation = rel.get("relation", "related_to").strip()
             desc = rel.get("description", "").strip()
             strength = float(rel.get("strength", 5))
+            valid_from = parse_temporal(rel.get("valid_from"))
+            valid_to = parse_temporal(rel.get("valid_to"))
             if not head or not tail:
                 continue
 
@@ -196,11 +231,11 @@ class GraphRAGExtractor:
             tail_id = entity_name_to_id.get(tail.lower())
 
             if head_id is None:
-                head_id = self._entity_graph.resolve_entity(head, "concept", aliases)
+                head_id = await self._resolve_entity(head, "concept", aliases)
                 entity_name_to_id[head.lower()] = head_id
                 self._entity_graph.add_mention(head_id, chunk_id)
             if tail_id is None:
-                tail_id = self._entity_graph.resolve_entity(tail, "concept", aliases)
+                tail_id = await self._resolve_entity(tail, "concept", aliases)
                 entity_name_to_id[tail.lower()] = tail_id
                 self._entity_graph.add_mention(tail_id, chunk_id)
 
@@ -211,4 +246,15 @@ class GraphRAGExtractor:
             ):
                 relation = "related_to"
 
-            self._entity_graph.add_triple(head_id, relation, tail_id, chunk_id, desc, strength)
+            self._entity_graph.add_triple(
+                head_id,
+                relation,
+                tail_id,
+                chunk_id,
+                desc,
+                strength,
+                source_path=chunk.source_path,
+                valid_from=valid_from,
+                valid_to=valid_to,
+                conflict_detection=self._config.conflicts.enabled,
+            )
