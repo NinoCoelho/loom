@@ -45,6 +45,60 @@ class EntityResolver:
         self._config = config
         self._llm = llm_provider
         self._cache: dict[str, int] = {}
+        # In-memory prototype matrix. Without it every _nearest_candidate call
+        # re-unpacked EVERY prototype vector from SQLite and ran a full
+        # matrix multiply — O(N) per resolve, O(N²) per bulk reindex: at
+        # ~15k entities a full reindex collapsed to a few files/minute.
+        # The cache refreshes lazily (bounded staleness of
+        # _CACHE_REFRESH_EVERY new entities) so per-resolve cost is a single
+        # cached matvec.
+        self._proto_ids: list[str] | None = None
+        self._proto_matrix: Any = None
+        self._proto_count_at_build = -1
+        self._resolves_since_build = 0
+
+    _CACHE_REFRESH_EVERY = 256
+
+    def _prototype_matrix(self) -> tuple[list[str], Any] | None:
+        """Return (vector_ids, matrix) for all prototypes, rebuilding the
+        cache at most once per _CACHE_REFRESH_EVERY new entities."""
+        self._resolves_since_build += 1
+        current = self._graph.count_entities()
+        stale = current != self._proto_count_at_build
+        due = self._resolves_since_build >= self._CACHE_REFRESH_EVERY
+        if self._proto_matrix is None or (stale and due):
+            try:
+                rows = self._vectors._db.execute(  # noqa: SLF001 - same package
+                    "SELECT id, embedding FROM vectors WHERE source = ?",
+                    (_PROTOTYPE_SOURCE,),
+                ).fetchall()
+                self._proto_ids = [r[0] for r in rows]
+                matrix: Any = None
+                try:
+                    import numpy as np
+
+                    if rows:
+                        # Bulk little-endian float32 read — one frombuffer
+                        # over the concatenated BLOBs instead of a Python
+                        # struct.unpack per row (13k rows × 384 dims made
+                        # rebuilds the dominant cost on large graphs).
+                        blob = b"".join(r[1] for r in rows)
+                        dim = len(rows[0][1]) // 4
+                        matrix = np.frombuffer(blob, dtype="<f4").reshape(len(rows), dim)
+                except ImportError:
+                    from loom.store.vector import _unpack_vector
+
+                    vectors = [_unpack_vector(r[1]) for r in rows]
+                    matrix = vectors or None
+                self._proto_matrix = matrix
+                self._proto_count_at_build = current
+                self._resolves_since_build = 0
+            except Exception:
+                logger.debug("prototype matrix build failed", exc_info=True)
+                return None
+        if not self._proto_ids or self._proto_matrix is None:
+            return None
+        return self._proto_ids, self._proto_matrix
 
     async def resolve(
         self, name: str, type: str, aliases: dict[str, list[str]] | None = None
@@ -106,15 +160,41 @@ class EntityResolver:
         embeds = await self._embedder.embed([name])
         if not embeds:
             return None
+
+        cached = self._prototype_matrix()
+        if cached is not None:
+            ids, matrix = cached
+            try:
+                import numpy as np
+
+                q = np.asarray(embeds[0], dtype=np.float32)
+                q_norm = float(np.linalg.norm(q)) or 1.0
+                m_norm = np.linalg.norm(matrix, axis=1)
+                denom = np.maximum(m_norm * q_norm, 1e-12)
+                scores = (matrix @ q) / denom
+                # Wider than the old top-5 so the type filter has room when
+                # the nearest hits are all of a different type.
+                top = np.argsort(-scores)[:25]
+                for i in top:
+                    ent_id = self._entity_id_for(ids[int(i)])
+                    if ent_id is None:
+                        continue
+                    ent = self._graph.get_entity(ent_id)
+                    if ent is None or ent.type != type:
+                        continue
+                    return ent_id, float(scores[int(i)])
+                return None
+            except ImportError:
+                pass  # no numpy — fall through to the store search path
+
         hits = self._vectors.search(
             embeds[0],
             top_k=5,
             source_filter=_PROTOTYPE_SOURCE,
         )
         for hit in hits:
-            try:
-                ent_id = int(hit.id.split(":", 1)[1])
-            except (IndexError, ValueError):
+            ent_id = self._entity_id_for(hit.id)
+            if ent_id is None:
                 continue
             ent = self._graph.get_entity(ent_id)
             if ent is None:
@@ -123,6 +203,13 @@ class EntityResolver:
                 continue
             return ent_id, hit.score
         return None
+
+    @staticmethod
+    def _entity_id_for(vector_id: str) -> int | None:
+        try:
+            return int(vector_id.split(":", 1)[1])
+        except (IndexError, ValueError):
+            return None
 
     async def _llm_agrees_same(
         self, new_name: str, new_type: str, entity_id: int, score: float

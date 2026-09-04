@@ -10,8 +10,10 @@ from loom.store.graphrag import (
     GraphRAGConfig,
     GraphRAGEngine,
     RetrievalResult,
-    parse_extraction_response as _parse_extraction_response,
     chunk_markdown,
+)
+from loom.store.graphrag import (
+    parse_extraction_response as _parse_extraction_response,
 )
 
 
@@ -240,3 +242,62 @@ and React for the frontend. The agent loop is driven by Loom framework.
 
         assert "## Relevant Context" in context
         assert engine._entity_graph.count_entities() >= 1
+
+
+class TestEntityResolverPrototypeCache:
+    """The resolver's prototype matrix cache turned bulk reindex from
+    O(N²) (full-store scan per resolve) into a cached matvec."""
+
+    def _resolver(self, tmp_path):
+        from loom.store.graph import EntityGraph
+        from loom.store.graphrag._resolution import EntityResolver
+        from loom.store.vector import VectorStore
+
+        graph = EntityGraph(tmp_path / "ents.sqlite")
+        vectors = VectorStore(tmp_path / "vecs.sqlite", dim=4)
+        cfg = GraphRAGConfig()
+        resolver = EntityResolver(graph, vectors, FakeEmbedder(), cfg)
+        return resolver, graph, vectors
+
+    async def test_nearest_candidate_same_type(self, tmp_path):
+        resolver, graph, vectors = self._resolver(tmp_path)
+        a = graph.resolve_entity("Nexus", "project")
+        b = graph.resolve_entity("Different", "concept")
+        vectors.upsert(f"entity:{a}", [1.0, 0.5, 0.3, 0.2], source="graphrag_entity")
+        vectors.upsert(f"entity:{b}", [9.0, 9.0, 9.0, 9.0], source="graphrag_entity")
+
+        # FakeEmbedder returns [len*0.01, .5, .3, .2] — "Nexus" (5 chars)
+        # is much closer to prototype a than b.
+        hit = await resolver._nearest_candidate("Nexusx", "project")
+        assert hit is not None
+        ent_id, score = hit
+        assert ent_id == a
+        assert score > 0.5  # clearly the same-direction prototype
+        # Wrong type never matches even though a is nearest.
+        assert await resolver._nearest_candidate("Nexusx", "technology") is None
+
+    async def test_cache_rebuilds_after_growth_threshold(self, tmp_path):
+        resolver, graph, vectors = self._resolver(tmp_path)
+        a = graph.resolve_entity("Nexus", "project")
+        vectors.upsert(f"entity:{a}", [1.0, 0.5, 0.3, 0.2], source="graphrag_entity")
+
+        hit = await resolver._nearest_candidate("Nexusx", "project")
+        assert hit is not None
+
+        # Add a much closer prototype AFTER the cache was built.
+        c = graph.resolve_entity("Nexusx", "project")
+        vectors.upsert(f"entity:{c}", [0.05, 0.5, 0.3, 0.2], source="graphrag_entity")
+
+        # Below the refresh threshold the stale cache still answers with a.
+        resolver._resolves_since_build = 0
+        hit = await resolver._nearest_candidate("Nexusx", "project")
+        assert hit is not None and hit[0] == a
+
+        # Past the threshold the cache rebuilds and finds c.
+        resolver._resolves_since_build = resolver._CACHE_REFRESH_EVERY
+        hit = await resolver._nearest_candidate("Nexusx", "project")
+        assert hit is not None and hit[0] == c
+
+    async def test_empty_store_returns_none(self, tmp_path):
+        resolver, _, _ = self._resolver(tmp_path)
+        assert await resolver._nearest_candidate("Anything", "project") is None
