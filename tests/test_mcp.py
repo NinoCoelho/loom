@@ -375,9 +375,6 @@ class TestMcpManager:
             _make_tool_stub("write", "Write file", {}),
         ]))
 
-        cfg1 = McpServerConfig(name="web", transport="stdio", command=["npx", "web"])
-        cfg2 = McpServerConfig(name="fs", transport="stdio", command=["npx", "fs"])
-
         with _patch_mcp(session1):
             with _patch_mcp(session2):
                 # Both sessions use the same patched mcp, so we need to

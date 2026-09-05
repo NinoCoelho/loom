@@ -30,7 +30,6 @@ import os
 import shlex
 import shutil
 import signal
-import subprocess
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -147,14 +146,14 @@ async def kill_proc_group(proc: asyncio.subprocess.Process) -> None:
         pass
     try:
         await asyncio.wait_for(proc.wait(), timeout=3)
-    except (TimeoutError, asyncio.TimeoutError):
+    except TimeoutError:
         try:
             os.killpg(pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError, OSError):
             pass
         try:
             await asyncio.wait_for(proc.wait(), timeout=2)
-        except (TimeoutError, asyncio.TimeoutError):
+        except TimeoutError:
             pass
 
 

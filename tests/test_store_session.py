@@ -134,7 +134,10 @@ def test_multimodal_content_roundtrip(store):
     messages = [
         ChatMessage(
             role=Role.USER,
-            content=[TextPart(text="look at this"), ImagePart(source="/img.png", media_type="image/png")],
+            content=[
+                TextPart(text="look at this"),
+                ImagePart(source="/img.png", media_type="image/png"),
+            ],
         ),
         ChatMessage(role=Role.ASSISTANT, content="I see it"),
     ]

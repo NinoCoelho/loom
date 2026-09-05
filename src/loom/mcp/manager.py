@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from loom.mcp.client import McpClient
@@ -187,8 +187,9 @@ class McpManager:
                 ))
             else:
                 try:
-                    count = len(client.list_tools.__wrapped__)  # type: ignore[attr-defined]
+                    count = len(client.tools)
                 except Exception:
+                    logger.debug("[mcp] failed to count tools for %r", name)
                     count = 0
                 statuses.append(ServerStatus(
                     name=name, transport=config.transport, connected=True, tool_count=count,

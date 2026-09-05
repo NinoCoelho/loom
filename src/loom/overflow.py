@@ -20,10 +20,9 @@ configured for the chosen model.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
-
 
 # Per-message overhead (role markers, separators, etc).
 _PER_MESSAGE_TOKENS = 4
@@ -116,7 +115,7 @@ def check_overflow(
     context_window: int,
     output_headroom: int = 4096,
     tools_overhead: int = 0,
-    estimator: "Callable[[Iterable[Any]], int] | None" = None,  # type: ignore[name-defined]
+    estimator: Callable[[Iterable[Any]], int] | None = None,
 ) -> OverflowCheck:
     """Return an OverflowCheck describing whether ``messages`` likely fits.
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import Any
 
 import pytest
 
@@ -40,7 +39,6 @@ from loom.types import (
     Usage,
     UsageEvent,
 )
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -272,7 +270,9 @@ class TestSerializeEvent:
         assert result["skills_touched"] == ["search"]
 
     def test_error_event_serialization(self):
-        ev = ErrorEvent(message="rate limited", reason="RATE_LIMIT", status_code=429, retryable=True)
+        ev = ErrorEvent(
+            message="rate limited", reason="RATE_LIMIT", status_code=429, retryable=True
+        )
         result = serialize_event(ev, session_id="s2")
         assert result["type"] == "error"
         assert result["message"] == "rate limited"
@@ -397,7 +397,6 @@ class TestSSEChatStreamRoute:
 
     @pytest.fixture
     def agent_setup(self, tmp_path):
-        from loom.store.session import SessionStore
 
         agent = Agent(
             provider=_MockRouteProvider(),
@@ -408,7 +407,6 @@ class TestSSEChatStreamRoute:
 
     @pytest.fixture
     def agent_with_tools(self, tmp_path):
-        from loom.store.session import SessionStore
 
         tools = ToolRegistry()
         tools.register(_EchoTool())
@@ -574,7 +572,7 @@ class TestSSEChatStreamRoute:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
-            resp = await client.post(
+            await client.post(
                 "/chat/stream",
                 json={"message": "echo test", "session_id": "tool-test"},
             )

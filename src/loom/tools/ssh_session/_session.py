@@ -43,7 +43,7 @@ from loom.tools.base import ToolHandler, ToolResult
 from loom.types import ToolSpec
 
 from ._classify import _classify_error
-from ._helpers import _ToolError, _err
+from ._helpers import _err, _ToolError
 from ._pool import SshConnectionPool
 from ._tmux import TmuxManager
 
@@ -127,7 +127,8 @@ class SshSessionTool(ToolHandler):
                     },
                     "lines": {
                         "type": "integer",
-                        "description": "Number of pane lines to capture (action=read). Default 200.",
+                        "description": "Number of pane lines to capture (action=read). "
+                        "Default 200.",
                     },
                 },
                 "required": ["action", "host"],

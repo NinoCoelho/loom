@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import yaml  # noqa: F401 — kept for backward compat re-exports
 
@@ -131,7 +131,7 @@ class MemoryStore(SqliteResource):
                     )
                     self._db.commit()
             except Exception:
-                pass
+                logger.warning("embedding failed for %s", key, exc_info=True)
         if self._graphrag is not None and source_path is not None:
             try:
                 await self._graphrag.index_source(source_path, content)

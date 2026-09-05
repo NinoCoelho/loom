@@ -38,6 +38,7 @@ class McpClient:
         self._config = config
         self._session: Any = None
         self._transport_cm: Any = None
+        self.tools: list[McpToolHandler] = []
 
     async def __aenter__(self) -> McpClient:
         try:
@@ -122,6 +123,7 @@ class McpClient:
                     meta=tool.meta,
                 )
             )
+        self.tools = handlers
         return handlers
 
     async def call_tool(self, name: str, args: dict) -> ToolResult:

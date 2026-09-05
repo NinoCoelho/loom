@@ -7,8 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from loom.llm.redact import redact_sensitive_text
 
-from ._classify import _classify_error
-from ._helpers import _ToolError, _err
+from ._helpers import _err, _ToolError
 
 if TYPE_CHECKING:
     from loom.auth.resolver import CredentialResolver

@@ -1,7 +1,6 @@
 from loom.tools.base import ToolResult
 from loom.types import (
     ChatMessage,
-    ContentPart,
     FilePart,
     ImagePart,
     Role,

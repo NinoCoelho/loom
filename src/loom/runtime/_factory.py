@@ -7,6 +7,7 @@ from loom.llm.base import LLMProvider
 from loom.llm.registry import ProviderRegistry
 from loom.loop import Agent, AgentConfig
 from loom.permissions import AgentPermissions
+from loom.runtime._record import AgentRecord
 from loom.skills.registry import SkillRegistry
 from loom.store.memory import MemoryStore
 from loom.store.session import SessionStore
@@ -14,8 +15,6 @@ from loom.tools.delegate import DelegateTool
 from loom.tools.memory import MemoryToolHandler
 from loom.tools.profile import EditIdentityTool
 from loom.tools.registry import ToolRegistry
-
-from loom.runtime._record import AgentRecord
 
 
 class AgentFactory:

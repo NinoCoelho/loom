@@ -11,9 +11,9 @@ from loom.scrape.scrapling import (
     _looks_like_auth_failure,
     _looks_like_block,
 )
-from loom.tools.utils import truncate_text as _truncate
 from loom.store.cookies import FilesystemCookieStore
 from loom.tools.scrape import WebScrapeTool
+from loom.tools.utils import truncate_text as _truncate
 
 
 @pytest.fixture

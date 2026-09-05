@@ -12,14 +12,11 @@ import re
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock
 
-import pytest
-
 from loom.tools.ssh_session import (
     SshSessionTool,
     _classify_error,
     _valid_session_id,
 )
-
 
 # ---------------------------------------------------------------------- helpers
 
@@ -76,7 +73,8 @@ class _FakeRemote:
 
         # compound: tmux has-session ... || tmux new-session -d -s NAME  (check first)
         m = re.search(
-            r"tmux has-session -t '?([^'\s]+)'? 2>/dev/null \|\| tmux new-session -d -s '?([^'\s]+)'?",
+            r"tmux has-session -t '?([^'\s]+)'? 2>/dev/null "
+            r"\|\| tmux new-session -d -s '?([^'\s]+)'?",
             stripped,
         )
         if m:

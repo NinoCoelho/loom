@@ -267,7 +267,10 @@ async def test_vault_date_dir_matches_created_date(vault_dir, store_with_vault):
     entry = await store_with_vault.read("dated")
     assert entry is not None
     created = datetime.fromisoformat(entry.created)
-    date_dir = vault_dir / "memory" / f"{created.year:04d}" / f"{created.month:02d}" / f"{created.day:02d}"
+    date_dir = (
+        vault_dir / "memory"
+        / f"{created.year:04d}" / f"{created.month:02d}" / f"{created.day:02d}"
+    )
     assert (date_dir / "dated.md").exists()
 
 
@@ -276,7 +279,10 @@ async def test_vault_overwrite_stays_in_original_dir(vault_dir, store_with_vault
     await store_with_vault.write("stable", "version 1", category="notes")
     entry1 = await store_with_vault.read("stable")
     created1 = datetime.fromisoformat(entry1.created)
-    date_dir1 = vault_dir / "memory" / f"{created1.year:04d}" / f"{created1.month:02d}" / f"{created1.day:02d}"
+    date_dir1 = (
+        vault_dir / "memory"
+        / f"{created1.year:04d}" / f"{created1.month:02d}" / f"{created1.day:02d}"
+    )
 
     await store_with_vault.write("stable", "version 2", category="notes")
     entry2 = await store_with_vault.read("stable")

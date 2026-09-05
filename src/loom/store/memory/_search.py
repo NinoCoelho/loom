@@ -11,11 +11,11 @@ import logging
 import math
 import sqlite3
 from datetime import UTC, datetime
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loom.store.embeddings import _cosine_similarity
 from loom.store.memory._types import MemoryEntry, RecallHit
-from loom.store.vector import _pack_vector, _unpack_vector
+from loom.store.vector import _unpack_vector
 
 if TYPE_CHECKING:
     from loom.store.memory._backend import StorageBackend

@@ -70,7 +70,6 @@ class McpServerBridge:
 
             tool_name = spec.name
             tool_desc = spec.description or ""
-            tool_schema = spec.parameters or {"type": "object", "properties": {}}
 
             _handler = handler
 

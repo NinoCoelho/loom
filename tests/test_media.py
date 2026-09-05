@@ -1,4 +1,3 @@
-import pytest
 
 from loom.media import infer_media_type
 
