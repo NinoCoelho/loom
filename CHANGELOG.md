@@ -28,6 +28,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.0b2] - 2026-09-04
+
 ### Added
 
 - **Multimodal content support.** `ChatMessage.content` now accepts `str | list[ContentPart] | None` where `ContentPart` is a discriminated union of `TextPart`, `ImagePart`, `VideoPart`, and `FilePart`. Files are referenced by path or URL — loaded from disk at send-time, never stored as base64 blobs in memory or the database. All existing code using `content="string"` is fully backward compatible.
@@ -81,6 +83,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `GraphRAGEngine.export_graph()` and `_store_extraction()` now use `EntityGraph` public methods (`list_all_entities()`, `list_all_triples()`, `set_entity_description()`) instead of reaching into internal `_db`.
 - Bare `except Exception: pass` blocks in the agent loop now log warnings for debuggability.
 - Memory recall fallback weights are named constants (`_W_BM25_NOVEC`, `_W_SALIENCE_NOVEC`, `_W_RECENCY_NOVEC`) instead of inline magic numbers.
+- **MCP tool count was always 0** — `server_statuses` computed it via `len()` of a method's `__wrapped__` attribute, which always raised into a swallowed `except`. `McpClient` now caches its tool list and the count reflects reality.
+- `loom.overflow` referenced `Callable` in a quoted annotation without importing it (F821).
+- Memory store embedding-write failures now log a warning instead of silently passing, so vector-index corruption is visible.
+- All 37 ruff lint errors fixed across `src/` and `tests/`.
 
 - `loom.mcp` subpackage: MCP (Model Context Protocol) client integration. `McpServerConfig`, `McpClient` (async context manager for stdio/SSE transports), and `McpToolHandler` let agents register and call tools exposed by external MCP servers.
 - New optional extra: `pip install "loom[mcp]"` (depends on the official `mcp` SDK).
