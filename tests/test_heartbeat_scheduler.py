@@ -204,3 +204,104 @@ class TestSchedulerWithSessions:
             assert "sess-hb" in (all_sessions[0]["title"] or "")
         finally:
             sessions.close()
+
+
+class TestDriverIsolation:
+    async def test_hanging_driver_does_not_block_others(self, tmp_dir, store, run_fn):
+        """The historical failure mode: one slow driver froze the whole
+        loop. check() now runs in isolated tasks — a hung driver must not
+        stop another driver from firing."""
+        hang_driver = textwrap.dedent("""\
+            import asyncio
+            from loom.heartbeat.types import HeartbeatDriver
+
+            class Driver(HeartbeatDriver):
+                async def check(self, state):
+                    await asyncio.sleep(3600)
+        """)
+        hb_dir = tmp_dir / "heartbeats"
+        _make_hb_dir(hb_dir, "hang-hb", driver_code=hang_driver)
+        _make_hb_dir(hb_dir, "fast-hb")
+        reg = HeartbeatRegistry(hb_dir)
+        reg.scan()
+        sched = HeartbeatScheduler(reg, store, run_fn, tick_interval=0.05)
+
+        sched.start()
+        # Long enough for ≥2 ticks; fast-hb fires despite hang-hb wedged.
+        await asyncio.sleep(0.25)
+        sched.stop()
+
+        assert run_fn.await_count >= 1
+        fast_state = store.get_state("fast-hb")
+        assert fast_state.get("count", 0) >= 1
+        # hang-hb never completed its check
+        assert store.get_state("hang-hb") == {}
+
+    async def test_driver_timeout_recorded(self, tmp_dir, store, run_fn):
+        hang_driver = textwrap.dedent("""\
+            import asyncio
+            from loom.heartbeat.types import HeartbeatDriver
+
+            class Driver(HeartbeatDriver):
+                async def check(self, state):
+                    await asyncio.sleep(3600)
+        """)
+        hb_dir = tmp_dir / "heartbeats"
+        _make_hb_dir(hb_dir, "slow-hb", driver_code=hang_driver)
+        reg = HeartbeatRegistry(hb_dir)
+        reg.scan()
+        sched = HeartbeatScheduler(reg, store, run_fn, tick_interval=0.05, driver_timeout=0.2)
+
+        sched.start()
+        await asyncio.sleep(0.4)
+        sched.stop()
+
+        run = store.get_run("slow-hb")
+        assert run is not None
+        assert "timed out" in (run.last_error or "")
+
+    async def test_skip_if_running(self, tmp_dir, store, run_fn):
+        """A driver still in flight from the previous tick is not
+        double-fired."""
+        counts: list[int] = []
+        slow_driver = textwrap.dedent("""\
+            import asyncio
+            from loom.heartbeat.types import HeartbeatDriver, HeartbeatEvent
+
+            class Driver(HeartbeatDriver):
+                async def check(self, state):
+                    await asyncio.sleep(0.3)
+                    return [], {"n": state.get("n", 0) + 1}
+        """)
+        hb_dir = tmp_dir / "heartbeats"
+        _make_hb_dir(hb_dir, "slow-hb", driver_code=slow_driver)
+        reg = HeartbeatRegistry(hb_dir)
+        reg.scan()
+        sched = HeartbeatScheduler(reg, store, run_fn, tick_interval=0.05, driver_timeout=10)
+
+        sched.start()
+        await asyncio.sleep(0.45)
+        sched.stop()
+
+        # Several ticks elapsed while the single check was in flight →
+        # exactly one completion.
+        state = store.get_state("slow-hb")
+        assert state.get("n") == 1
+
+    async def test_status_reports_liveness(self, tmp_dir, store, run_fn):
+        hb_dir = tmp_dir / "heartbeats"
+        _make_hb_dir(hb_dir, "live-hb")
+        reg = HeartbeatRegistry(hb_dir)
+        reg.scan()
+        sched = HeartbeatScheduler(reg, store, run_fn, tick_interval=0.05)
+        assert sched.status()["running"] is False
+
+        sched.start()
+        await asyncio.sleep(0.12)
+        snap = sched.status()
+        sched.stop()
+
+        assert snap["running"] is True
+        assert snap["tick_count"] >= 1
+        assert snap["last_tick_at"] is not None
+        assert snap["stalled"] is False

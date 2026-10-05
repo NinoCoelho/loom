@@ -105,3 +105,49 @@ class TestIsDue:
         now = datetime(2024, 1, 1, 9, 5, 0)
         last = datetime(2024, 1, 1, 9, 3, 0)  # 2 minutes ago
         assert is_due(s, last, now)
+
+
+class TestTimezoneAndDaily:
+    def test_daily_hhmm_parses(self):
+        s = parse_schedule("14:30")
+        assert not s.is_interval
+        assert s.tz is None
+        assert s.minutes == frozenset({30})
+        assert s.hours == frozenset({14})
+
+    def test_daily_hhmm_invalid_time(self):
+        with pytest.raises(ValueError):
+            parse_schedule("25:00")
+
+    def test_daily_hhmm_due(self):
+        s = parse_schedule("14:30")
+        assert is_due(s, None, datetime(2024, 1, 1, 14, 30, 0))
+        assert not is_due(s, None, datetime(2024, 1, 1, 14, 31, 0))
+
+    def test_cron_with_timezone_suffix(self):
+        s = parse_schedule("0 9 * * * America/New_York")
+        assert s.tz == "America/New_York"
+        # 09:00 New York on 2024-01-01 = 14:00 UTC (EST, UTC-5)
+        assert is_due(s, None, datetime(2024, 1, 1, 14, 0, 0, tzinfo=UTC))
+        assert not is_due(s, None, datetime(2024, 1, 1, 9, 0, 0, tzinfo=UTC))
+
+    def test_daily_hhmm_with_timezone(self):
+        s = parse_schedule("09:00 Europe/Lisbon")
+        assert s.tz == "Europe/Lisbon"
+        # 09:00 Lisbon (WET, UTC+0 in January) = 09:00 UTC
+        assert is_due(s, None, datetime(2024, 1, 1, 9, 0, 0, tzinfo=UTC))
+
+    def test_invalid_timezone_token_not_stripped(self):
+        # "NotAZone" is not a valid IANA name → whole expression rejected
+        with pytest.raises(ValueError):
+            parse_schedule("0 9 * * * NotAZone")
+
+    def test_interval_with_trailing_day_word(self):
+        # "minutes"/"hours" words must never be mistaken for a tz suffix
+        s = parse_schedule("every 30 minutes")
+        assert s.is_interval and s.interval_seconds == 1800
+
+    def test_cron_utc_default(self):
+        s = parse_schedule("0 9 * * *")
+        assert s.tz is None
+        assert is_due(s, None, datetime(2024, 1, 1, 9, 0, 0))
